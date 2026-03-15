@@ -1,0 +1,22 @@
+[
+  {
+    "id": "scenario_1",
+    "title": "Requesting Deadline Flexibility",
+    "description": "You need to message a project teammate to request a one-day extension on your shared deliverable after an unexpected family obligation.",
+    "requiredElements": [
+      "Key fact: unexpected family obligation affected your timeline",
+      "Emotion/intent: respectful accountability and desire to keep trust",
+      "Request/next step: ask for a one-day extension and propose a concrete catch-up plan"
+    ]
+  },
+  {
+    "id": "scenario_2",
+    "title": "Addressing Group Chat Tension",
+    "description": "You need to message a friend after a tense group chat exchange where your comment came across as dismissive.",
+    "requiredElements": [
+      "Key fact: your comment in the group chat sounded dismissive",
+      "Emotion/intent: acknowledge impact and repair the relationship",
+      "Request/next step: ask to talk and clarify expectations going forward"
+    ]
+  }
+]
