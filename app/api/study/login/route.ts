@@ -1,17 +1,15 @@
-import { registerParticipant } from "@/lib/sessionManager";
+import { resolveSessionByAccessCode } from "@/lib/sessionManager";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 const bodySchema = z.object({
-  participantLabel: z.string().optional(),
-  targetN: z.number().int().positive().optional()
+  accessCode: z.string().min(1)
 });
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
-    const json = await request.json();
-    const parsed = bodySchema.parse(json);
-    const result = registerParticipant(parsed);
+    const parsed = bodySchema.parse(await request.json());
+    const result = resolveSessionByAccessCode(parsed.accessCode);
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

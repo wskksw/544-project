@@ -4,22 +4,28 @@ import { db } from "@/lib/db";
 import { logEvent, logTransition, nowIso } from "@/lib/logger";
 import { getScenarioById } from "@/lib/scenarios";
 import { canTransition, getInitialState } from "@/lib/stateMachine";
-import type { AssignmentCell, RoleCondition, StudyState, TrialPlan } from "@/lib/types";
+import { ensureSurveyTemplatesSeeded } from "@/lib/surveys";
+import type { AssignmentCell, RoleCondition, SessionStatus, StudyState, TrialPlan } from "@/lib/types";
+
+ensureSurveyTemplatesSeeded();
 
 type AssignmentRow = {
   participant_id: string;
   cell_id: string;
   scenario_first: "scenario_1" | "scenario_2";
-  pattern_id: "P1" | "P2" | "P3";
+  role_order_id: string;
   target_n: number;
+  assigned_manually: number;
   created_at: string;
 };
 
 type SessionRow = {
   id: string;
   participant_id: string;
+  participant_label: string;
+  access_code: string;
   is_playground: number;
-  status: "active" | "completed";
+  status: SessionStatus;
   current_trial_index: number;
   current_state: StudyState;
   created_at: string;
@@ -37,43 +43,43 @@ type TrialRow = {
   final_message_text: string | null;
 };
 
+const ACCESS_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
 function assertTargetN(targetN: number): void {
-  if (!Number.isFinite(targetN) || targetN <= 0 || targetN % 6 !== 0) {
-    throw new Error("Target N must be a positive multiple of 6.");
+  if (!Number.isFinite(targetN) || targetN <= 0 || targetN % 12 !== 0) {
+    throw new Error("Target N must be a positive multiple of 12.");
   }
 }
 
-function getCellMap(): Map<string, AssignmentCell> {
-  const map = new Map<string, AssignmentCell>();
-  for (const cell of getCounterbalanceCells()) {
-    map.set(cell.cellId, cell);
-  }
-  return map;
+function getTargetNLockInfo(): { count: number; distinctCount: number; lockedTargetN: number | null } {
+  return db
+    .prepare(
+      "SELECT COUNT(*) as count, COUNT(DISTINCT target_n) as distinctCount, MIN(target_n) as lockedTargetN FROM assignments"
+    )
+    .get() as { count: number; distinctCount: number; lockedTargetN: number | null };
 }
 
 function buildTrials(cell: AssignmentCell): TrialPlan[] {
   const firstScenario = cell.scenarioFirst;
   const secondScenario = firstScenario === "scenario_1" ? "scenario_2" : "scenario_1";
-  const firstOrder = firstScenario === "scenario_1" ? cell.scenario1Order : cell.scenario2Order;
-  const secondOrder = secondScenario === "scenario_1" ? cell.scenario1Order : cell.scenario2Order;
 
   const trials: TrialPlan[] = [];
-  for (let idx = 0; idx < firstOrder.length; idx += 1) {
+  for (let idx = 0; idx < cell.conditionOrder.length; idx += 1) {
     trials.push({
       trialIndex: idx,
       scenarioId: firstScenario,
-      condition: firstOrder[idx],
+      condition: cell.conditionOrder[idx],
       orderPosition: idx + 1,
-      status: idx === 0 ? "active" : "pending"
+      status: "pending"
     });
   }
 
-  for (let idx = 0; idx < secondOrder.length; idx += 1) {
-    const trialIndex = idx + firstOrder.length;
+  for (let idx = 0; idx < cell.conditionOrder.length; idx += 1) {
+    const trialIndex = idx + cell.conditionOrder.length;
     trials.push({
       trialIndex,
       scenarioId: secondScenario,
-      condition: secondOrder[idx],
+      condition: cell.conditionOrder[idx],
       orderPosition: trialIndex + 1,
       status: "pending"
     });
@@ -82,111 +88,27 @@ function buildTrials(cell: AssignmentCell): TrialPlan[] {
   return trials;
 }
 
-function getAssignment(participantId: string): AssignmentRow | undefined {
-  return db
-    .prepare("SELECT * FROM assignments WHERE participant_id = ?")
-    .get(participantId) as AssignmentRow | undefined;
+function randomCodeSegment(length: number): string {
+  let result = "";
+  for (let idx = 0; idx < length; idx += 1) {
+    const randomIndex = Math.floor(Math.random() * ACCESS_CODE_CHARS.length);
+    result += ACCESS_CODE_CHARS[randomIndex];
+  }
+  return result;
 }
 
-export function registerParticipant(params: {
-  participantId: string;
-  targetN?: number;
-}): { assignment: AssignmentRow; trials: TrialPlan[]; sessionId: string } {
-  const participantId = params.participantId.trim();
-  if (!participantId) {
-    throw new Error("Participant ID is required.");
+function generateUniqueAccessCode(): string {
+  for (let attempts = 0; attempts < 100; attempts += 1) {
+    const candidate = `AIMC-${randomCodeSegment(4)}`;
+    const existing = db
+      .prepare("SELECT 1 FROM participants WHERE access_code = ?")
+      .get(candidate) as { 1: number } | undefined;
+    if (!existing) {
+      return candidate;
+    }
   }
 
-  const targetN = params.targetN ?? DEFAULT_TARGET_N;
-  assertTargetN(targetN);
-
-  const cellMap = getCellMap();
-
-  const transaction = db.transaction(() => {
-    const existing = getAssignment(participantId);
-    if (existing) {
-      const existingSession = db
-        .prepare(
-          "SELECT id FROM sessions WHERE participant_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1"
-        )
-        .get(participantId) as { id: string } | undefined;
-
-      if (existingSession) {
-        const cell = cellMap.get(existing.cell_id);
-        if (!cell) {
-          throw new Error(`Assignment cell not found: ${existing.cell_id}`);
-        }
-        return {
-          assignment: existing,
-          trials: buildTrials(cell),
-          sessionId: existingSession.id
-        };
-      }
-
-      const cell = cellMap.get(existing.cell_id);
-      if (!cell) {
-        throw new Error(`Assignment cell not found: ${existing.cell_id}`);
-      }
-      const sessionId = createSessionInternal(participantId, buildTrials(cell), false);
-      return {
-        assignment: existing,
-        trials: buildTrials(cell),
-        sessionId
-      };
-    }
-
-    const counts = db
-      .prepare(
-        "SELECT cell_id as cellId, COUNT(*) as count FROM assignments WHERE target_n = ? GROUP BY cell_id"
-      )
-      .all(targetN) as Array<{ cellId: string; count: number }>;
-
-    const countMap = new Map<string, number>();
-    for (const row of counts) {
-      countMap.set(row.cellId, row.count);
-    }
-
-    const quotaPerCell = targetN / 6;
-    const candidates = getCounterbalanceCells()
-      .map((cell) => ({
-        cell,
-        count: countMap.get(cell.cellId) ?? 0
-      }))
-      .filter((entry) => entry.count < quotaPerCell)
-      .sort((a, b) => {
-        if (a.count === b.count) {
-          return a.cell.cellId.localeCompare(b.cell.cellId);
-        }
-        return a.count - b.count;
-      });
-
-    if (candidates.length === 0) {
-      throw new Error(
-        `All assignment cells are full for target N=${targetN}. Increase target N or complete existing sessions.`
-      );
-    }
-
-    const selected = candidates[0].cell;
-    const createdAt = nowIso();
-    db.prepare(
-      `
-      INSERT INTO assignments (participant_id, cell_id, scenario_first, pattern_id, target_n, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      `
-    ).run(participantId, selected.cellId, selected.scenarioFirst, selected.patternId, targetN, createdAt);
-
-    const assignment = getAssignment(participantId);
-    if (!assignment) {
-      throw new Error("Failed to persist assignment.");
-    }
-
-    const trials = buildTrials(selected);
-    const sessionId = createSessionInternal(participantId, trials, false);
-
-    return { assignment, trials, sessionId };
-  });
-
-  return transaction();
+  throw new Error("Failed to generate unique access code.");
 }
 
 function createSessionInternal(participantId: string, trials: TrialPlan[], isPlayground: boolean): string {
@@ -217,7 +139,7 @@ function createSessionInternal(participantId: string, trials: TrialPlan[], isPla
       trial.condition,
       trial.orderPosition,
       trial.status,
-      trial.status === "active" ? createdAt : null
+      null
     );
   }
 
@@ -236,24 +158,283 @@ function createSessionInternal(participantId: string, trials: TrialPlan[], isPla
   return sessionId;
 }
 
+export function registerParticipant(params: {
+  participantLabel?: string;
+  targetN?: number;
+}): {
+  participant: { id: string; participantLabel: string; accessCode: string };
+  assignment: AssignmentRow;
+  trials: TrialPlan[];
+  sessionId: string;
+} {
+  const participantLabel = (params.participantLabel ?? "").trim() || `Participant ${randomCodeSegment(3)}`;
+
+  const transaction = db.transaction(() => {
+    const lockRow = getTargetNLockInfo();
+
+    if (lockRow.distinctCount > 1) {
+      throw new Error("Inconsistent target N values detected in assignments. Reset data before continuing.");
+    }
+
+    const lockedTargetN = lockRow.count > 0 ? lockRow.lockedTargetN : null;
+    const targetN = params.targetN ?? lockedTargetN ?? DEFAULT_TARGET_N;
+    assertTargetN(targetN);
+
+    if (lockedTargetN !== null && targetN !== lockedTargetN) {
+      throw new Error(`Target N is locked at ${lockedTargetN} for this study.`);
+    }
+
+    const counts = db
+      .prepare(
+        "SELECT cell_id as cellId, COUNT(*) as count FROM assignments WHERE target_n = ? GROUP BY cell_id"
+      )
+      .all(targetN) as Array<{ cellId: string; count: number }>;
+
+    const countMap = new Map<string, number>();
+    for (const row of counts) {
+      countMap.set(row.cellId, row.count);
+    }
+
+    const quotaPerCell = targetN / 12;
+    const candidates = getCounterbalanceCells()
+      .map((cell) => ({
+        cell,
+        count: countMap.get(cell.cellId) ?? 0
+      }))
+      .filter((entry) => entry.count < quotaPerCell)
+      .sort((a, b) => {
+        if (a.count === b.count) {
+          return a.cell.cellId.localeCompare(b.cell.cellId);
+        }
+        return a.count - b.count;
+      });
+
+    if (candidates.length === 0) {
+      throw new Error(`All assignment cells are full for target N=${targetN}. Increase target N.`);
+    }
+
+    const selectedCell = candidates[0].cell;
+
+    const participantId = randomUUID();
+    const accessCode = generateUniqueAccessCode();
+    const createdAt = nowIso();
+
+    db.prepare(
+      `
+      INSERT INTO participants (id, participant_label, access_code, created_at)
+      VALUES (?, ?, ?, ?)
+      `
+    ).run(participantId, participantLabel, accessCode, createdAt);
+
+    db.prepare(
+      `
+      INSERT INTO assignments (participant_id, cell_id, scenario_first, role_order_id, target_n, assigned_manually, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      `
+    ).run(
+      participantId,
+      selectedCell.cellId,
+      selectedCell.scenarioFirst,
+      selectedCell.roleOrderId,
+      targetN,
+      0,
+      createdAt
+    );
+
+    const assignment = db
+      .prepare("SELECT * FROM assignments WHERE participant_id = ?")
+      .get(participantId) as AssignmentRow | undefined;
+
+    if (!assignment) {
+      throw new Error("Failed to persist assignment.");
+    }
+
+    const trials = buildTrials(selectedCell);
+    const sessionId = createSessionInternal(participantId, trials, false);
+
+    return {
+      participant: {
+        id: participantId,
+        participantLabel,
+        accessCode
+      },
+      assignment,
+      trials,
+      sessionId
+    };
+  });
+
+  return transaction();
+}
+
+export function populateParticipantsToTargetN(params: { targetN?: number }): {
+  targetN: number;
+  existing: number;
+  created: number;
+  total: number;
+  participants: Array<{
+    participantId: string;
+    participantLabel: string;
+    accessCode: string;
+    cellId: string;
+    sessionId: string;
+  }>;
+} {
+  const lockRow = getTargetNLockInfo();
+  if (lockRow.distinctCount > 1) {
+    throw new Error("Inconsistent target N values detected in assignments. Reset data before continuing.");
+  }
+
+  const lockedTargetN = lockRow.count > 0 ? lockRow.lockedTargetN : null;
+  const targetN = params.targetN ?? lockedTargetN ?? DEFAULT_TARGET_N;
+  assertTargetN(targetN);
+
+  if (lockedTargetN !== null && targetN !== lockedTargetN) {
+    throw new Error(`Target N is locked at ${lockedTargetN} for this study.`);
+  }
+
+  const existing = lockRow.count;
+  if (existing > targetN) {
+    throw new Error(
+      `Current participant count (${existing}) already exceeds target N (${targetN}). Reset data to change target.`
+    );
+  }
+
+  const missing = targetN - existing;
+  const participants: Array<{
+    participantId: string;
+    participantLabel: string;
+    accessCode: string;
+    cellId: string;
+    sessionId: string;
+  }> = [];
+
+  for (let idx = 0; idx < missing; idx += 1) {
+    const participantLabel = `P${String(existing + idx + 1).padStart(3, "0")}`;
+    const created = registerParticipant({ participantLabel, targetN });
+    participants.push({
+      participantId: created.participant.id,
+      participantLabel: created.participant.participantLabel,
+      accessCode: created.participant.accessCode,
+      cellId: created.assignment.cell_id,
+      sessionId: created.sessionId
+    });
+  }
+
+  return {
+    targetN,
+    existing,
+    created: missing,
+    total: targetN,
+    participants
+  };
+}
+
+export function updateParticipantLabel(params: {
+  participantId: string;
+  participantLabel: string;
+}): { participantId: string; participantLabel: string; accessCode: string } {
+  const participantId = params.participantId.trim();
+  const participantLabel = params.participantLabel.trim();
+  if (!participantId) {
+    throw new Error("Participant ID is required.");
+  }
+  if (!participantLabel) {
+    throw new Error("Participant label is required.");
+  }
+
+  const result = db
+    .prepare("UPDATE participants SET participant_label = ? WHERE id = ?")
+    .run(participantLabel, participantId);
+
+  if (result.changes === 0) {
+    throw new Error("Participant not found.");
+  }
+
+  const row = db
+    .prepare("SELECT id, participant_label, access_code FROM participants WHERE id = ?")
+    .get(participantId) as { id: string; participant_label: string; access_code: string } | undefined;
+
+  if (!row) {
+    throw new Error("Participant not found after update.");
+  }
+
+  return {
+    participantId: row.id,
+    participantLabel: row.participant_label,
+    accessCode: row.access_code
+  };
+}
+
 export function createPlaygroundSession(params: {
   condition: RoleCondition;
   scenarioId: string;
 }): string {
-  const participantId = `playground-${randomUUID().slice(0, 8)}`;
   getScenarioById(params.scenarioId);
 
   return db.transaction(() => {
+    const participantId = `playground-${randomUUID().slice(0, 8)}`;
+    const createdAt = nowIso();
+
+    db.prepare(
+      "INSERT INTO participants (id, participant_label, access_code, created_at) VALUES (?, ?, ?, ?)"
+    ).run(participantId, "Playground Tester", `PLAY-${randomCodeSegment(4)}`, createdAt);
+
     const trial: TrialPlan = {
       trialIndex: 0,
       scenarioId: params.scenarioId,
       condition: params.condition,
       orderPosition: 1,
-      status: "active"
+      status: "pending"
     };
 
     return createSessionInternal(participantId, [trial], true);
   })();
+}
+
+export function resolveSessionByAccessCode(accessCode: string): {
+  sessionId: string;
+  status: SessionStatus;
+  participantLabel: string;
+  accessCode: string;
+} {
+  const normalized = accessCode.trim().toUpperCase();
+  if (!normalized) {
+    throw new Error("Access code is required.");
+  }
+
+  const participant = db
+    .prepare(
+      "SELECT id, participant_label, access_code FROM participants WHERE UPPER(access_code) = UPPER(?)"
+    )
+    .get(normalized) as { id: string; participant_label: string; access_code: string } | undefined;
+
+  if (!participant) {
+    throw new Error("Access code not found.");
+  }
+
+  const session = db
+    .prepare(
+      `
+      SELECT id, status
+      FROM sessions
+      WHERE participant_id = ? AND is_playground = 0
+      ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, updated_at DESC
+      LIMIT 1
+      `
+    )
+    .get(participant.id) as { id: string; status: SessionStatus } | undefined;
+
+  if (!session) {
+    throw new Error("No study session found for this participant.");
+  }
+
+  return {
+    sessionId: session.id,
+    status: session.status,
+    participantLabel: participant.participant_label,
+    accessCode: participant.access_code
+  };
 }
 
 export function getSessionSnapshot(sessionId: string): {
@@ -261,9 +442,16 @@ export function getSessionSnapshot(sessionId: string): {
   currentTrial: TrialRow;
   allTrials: TrialRow[];
 } {
-  const session = db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as
-    | SessionRow
-    | undefined;
+  const session = db
+    .prepare(
+      `
+      SELECT s.*, p.participant_label, p.access_code
+      FROM sessions s
+      JOIN participants p ON p.id = s.participant_id
+      WHERE s.id = ?
+      `
+    )
+    .get(sessionId) as SessionRow | undefined;
 
   if (!session) {
     throw new Error("Session not found.");
@@ -292,6 +480,10 @@ export function transitionSessionState(params: {
     const snapshot = getSessionSnapshot(params.sessionId);
     if (snapshot.session.status !== "active") {
       throw new Error("Session is not active.");
+    }
+
+    if (snapshot.session.current_state === "post_study_survey") {
+      throw new Error("Final post-study survey must be submitted before session completion.");
     }
 
     const fromState = snapshot.session.current_state;
@@ -324,6 +516,51 @@ export function transitionSessionState(params: {
   })();
 }
 
+export function startCurrentTrial(sessionId: string): { trialIndex: number; startedAt: string } {
+  return db.transaction(() => {
+    const snapshot = getSessionSnapshot(sessionId);
+
+    if (snapshot.session.status !== "active") {
+      throw new Error("Session is not active.");
+    }
+
+    if (snapshot.session.current_state !== "scenario_intro") {
+      throw new Error("Current trial can only be started from scenario_intro.");
+    }
+
+    if (snapshot.currentTrial.completed_at) {
+      throw new Error("Current trial is already completed.");
+    }
+
+    if (snapshot.currentTrial.started_at) {
+      return {
+        trialIndex: snapshot.currentTrial.trial_index,
+        startedAt: snapshot.currentTrial.started_at
+      };
+    }
+
+    const startedAt = nowIso();
+    db.prepare(
+      "UPDATE trial_plan SET status = 'active', started_at = ? WHERE session_id = ? AND trial_index = ?"
+    ).run(startedAt, sessionId, snapshot.currentTrial.trial_index);
+
+    db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(startedAt, sessionId);
+
+    logEvent({
+      sessionId,
+      trialIndex: snapshot.currentTrial.trial_index,
+      eventType: "trial_started",
+      payload: { state: "scenario_intro" },
+      timestamp: startedAt
+    });
+
+    return {
+      trialIndex: snapshot.currentTrial.trial_index,
+      startedAt
+    };
+  })();
+}
+
 export function submitTrial(params: {
   sessionId: string;
   surveyResponses: Record<string, unknown>;
@@ -331,105 +568,106 @@ export function submitTrial(params: {
   revisorActions?: unknown;
   facilitatorResponses?: Array<{ question: string; response: string }>;
 }): {
-  status: "active" | "completed";
+  status: SessionStatus;
   currentTrialIndex: number;
   currentState: StudyState;
 } {
   const transaction = db.transaction(
-    (): { status: "active" | "completed"; currentTrialIndex: number; currentState: StudyState } => {
+    (): { status: SessionStatus; currentTrialIndex: number; currentState: StudyState } => {
       const snapshot = getSessionSnapshot(params.sessionId);
       const session = snapshot.session;
       const trial = snapshot.currentTrial;
 
-    if (session.status !== "active") {
-      throw new Error("Session already completed.");
-    }
-
-    if (session.current_state !== "post_condition_survey") {
-      throw new Error("Session must be in post_condition_survey before submit.");
-    }
-
-    const timestamp = nowIso();
-    db.prepare(
-      "INSERT INTO surveys (session_id, trial_index, responses_json, created_at) VALUES (?, ?, ?, ?)"
-    ).run(params.sessionId, trial.trial_index, JSON.stringify(params.surveyResponses), timestamp);
-
-    if (params.facilitatorResponses?.length) {
-      const insertReflection = db.prepare(
-        "INSERT INTO facilitator_reflections (session_id, trial_index, question, response, created_at) VALUES (?, ?, ?, ?, ?)"
-      );
-      for (const pair of params.facilitatorResponses) {
-        insertReflection.run(params.sessionId, trial.trial_index, pair.question, pair.response, timestamp);
+      if (session.status !== "active") {
+        throw new Error("Session already completed.");
       }
-    }
 
-    db.prepare(
-      `
-      UPDATE trial_plan
-      SET status = 'completed', completed_at = ?, final_message_text = ?
-      WHERE session_id = ? AND trial_index = ?
-      `
-    ).run(timestamp, params.finalMessageText, params.sessionId, trial.trial_index);
+      if (session.current_state !== "post_condition_survey") {
+        throw new Error("Session must be in post_condition_survey before submit.");
+      }
 
-    logEvent({
-      sessionId: params.sessionId,
-      trialIndex: trial.trial_index,
-      eventType: "trial_submitted",
-      payload: {
-        revisorActions: params.revisorActions ?? null,
-        finalMessageLength: params.finalMessageText.length
-      },
-      timestamp
-    });
+      const timestamp = nowIso();
+      db.prepare(
+        "INSERT INTO surveys (session_id, trial_index, responses_json, created_at) VALUES (?, ?, ?, ?)"
+      ).run(params.sessionId, trial.trial_index, JSON.stringify(params.surveyResponses), timestamp);
 
-    const nextTrial = snapshot.allTrials.find((candidate) => candidate.trial_index === trial.trial_index + 1);
+      if (params.facilitatorResponses?.length) {
+        const insertReflection = db.prepare(
+          "INSERT INTO facilitator_reflections (session_id, trial_index, question, response, created_at) VALUES (?, ?, ?, ?, ?)"
+        );
+        for (const pair of params.facilitatorResponses) {
+          insertReflection.run(params.sessionId, trial.trial_index, pair.question, pair.response, timestamp);
+        }
+      }
 
-    if (!nextTrial) {
-      db.prepare("UPDATE sessions SET status = 'completed', updated_at = ? WHERE id = ?").run(
-        timestamp,
-        params.sessionId
-      );
+      db.prepare(
+        `
+        UPDATE trial_plan
+        SET status = 'completed', completed_at = ?, final_message_text = ?
+        WHERE session_id = ? AND trial_index = ?
+        `
+      ).run(timestamp, params.finalMessageText, params.sessionId, trial.trial_index);
 
       logEvent({
         sessionId: params.sessionId,
         trialIndex: trial.trial_index,
-        eventType: "session_completed",
-        payload: { finalTrialIndex: trial.trial_index },
+        eventType: "trial_submitted",
+        payload: {
+          revisorActions: params.revisorActions ?? null,
+          finalMessageLength: params.finalMessageText.length
+        },
         timestamp
       });
 
-      return {
-        status: "completed",
-        currentTrialIndex: trial.trial_index,
-        currentState: "post_condition_survey"
-      };
-    }
+      const nextTrial = snapshot.allTrials.find(
+        (candidate) => candidate.trial_index === trial.trial_index + 1
+      );
 
-    logTransition({
-      sessionId: params.sessionId,
-      trialIndex: trial.trial_index,
-      from: "post_condition_survey",
-      to: "inter_condition_buffer",
-      payload: { nextTrialIndex: nextTrial.trial_index }
-    });
+      if (!nextTrial) {
+        db.prepare("UPDATE sessions SET current_state = 'post_study_survey', updated_at = ? WHERE id = ?").run(
+          timestamp,
+          params.sessionId
+        );
 
-    db.prepare("UPDATE trial_plan SET status = 'active', started_at = ? WHERE session_id = ? AND trial_index = ?").run(
-      timestamp,
-      params.sessionId,
-      nextTrial.trial_index
-    );
+        logEvent({
+          sessionId: params.sessionId,
+          trialIndex: trial.trial_index,
+          eventType: "awaiting_post_study_survey",
+          payload: { finalTrialIndex: trial.trial_index },
+          timestamp
+        });
 
-    db.prepare(
-      "UPDATE sessions SET current_trial_index = ?, current_state = 'scenario_intro', updated_at = ? WHERE id = ?"
-    ).run(nextTrial.trial_index, timestamp, params.sessionId);
+        return {
+          status: "active",
+          currentTrialIndex: trial.trial_index,
+          currentState: "post_study_survey"
+        };
+      }
 
-    logTransition({
-      sessionId: params.sessionId,
-      trialIndex: nextTrial.trial_index,
-      from: "inter_condition_buffer",
-      to: "scenario_intro",
-      payload: { previousTrialIndex: trial.trial_index }
-    });
+      logTransition({
+        sessionId: params.sessionId,
+        trialIndex: trial.trial_index,
+        from: "post_condition_survey",
+        to: "inter_condition_buffer",
+        payload: { nextTrialIndex: nextTrial.trial_index }
+      });
+
+      db.prepare("UPDATE trial_plan SET status = 'pending', started_at = NULL WHERE session_id = ? AND trial_index = ?").run(
+        params.sessionId,
+        nextTrial.trial_index
+      );
+
+      db.prepare(
+        "UPDATE sessions SET current_trial_index = ?, current_state = 'scenario_intro', updated_at = ? WHERE id = ?"
+      ).run(nextTrial.trial_index, timestamp, params.sessionId);
+
+      logTransition({
+        sessionId: params.sessionId,
+        trialIndex: nextTrial.trial_index,
+        from: "inter_condition_buffer",
+        to: "scenario_intro",
+        payload: { previousTrialIndex: trial.trial_index }
+      });
 
       return {
         status: "active",
@@ -442,35 +680,188 @@ export function submitTrial(params: {
   return transaction();
 }
 
-export function listAssignmentsAndSessions(): {
-  assignments: Array<Record<string, unknown>>;
-  sessions: Array<Record<string, unknown>>;
-  cellCounts: Array<Record<string, unknown>>;
-} {
-  const assignments = db
-    .prepare("SELECT * FROM assignments ORDER BY created_at DESC")
-    .all() as Array<Record<string, unknown>>;
+export function submitPostStudySurvey(params: {
+  sessionId: string;
+  responses: Record<string, unknown>;
+}): { status: SessionStatus; currentState: StudyState } {
+  const transaction = db.transaction((): { status: SessionStatus; currentState: StudyState } => {
+    const snapshot = getSessionSnapshot(params.sessionId);
 
-  const sessions = db
+    if (snapshot.session.status !== "active") {
+      throw new Error("Session already completed.");
+    }
+
+    if (snapshot.session.current_state !== "post_study_survey") {
+      throw new Error("Session is not waiting for post-study survey.");
+    }
+
+    const timestamp = nowIso();
+
+    db.prepare(
+      "INSERT INTO post_study_surveys (session_id, responses_json, created_at) VALUES (?, ?, ?)"
+    ).run(params.sessionId, JSON.stringify(params.responses), timestamp);
+
+    db.prepare("UPDATE sessions SET status = 'completed', updated_at = ? WHERE id = ?").run(
+      timestamp,
+      params.sessionId
+    );
+
+    logEvent({
+      sessionId: params.sessionId,
+      trialIndex: snapshot.currentTrial.trial_index,
+      eventType: "session_completed",
+      payload: { via: "post_study_survey" },
+      timestamp
+    });
+
+    return {
+      status: "completed",
+      currentState: "post_study_survey"
+    };
+  });
+
+  return transaction();
+}
+
+export function getCompletionCode(sessionId: string): string {
+  return `AIMC-${sessionId.slice(0, 8).toUpperCase()}`;
+}
+
+export function listAssignmentsAndSessions(): {
+  cells: Array<{
+    cellId: string;
+    scenarioFirst: "scenario_1" | "scenario_2";
+    roleOrderId: string;
+    conditionOrder: RoleCondition[];
+    count: number;
+    participants: Array<{
+      participantId: string;
+      participantLabel: string;
+      accessCode: string;
+      sessionId: string | null;
+      sessionStatus: string;
+      currentState: StudyState | null;
+      currentTrialIndex: number | null;
+      completedTrials: number;
+      totalTrials: number;
+    }>;
+  }>;
+  sessions: Array<Record<string, unknown>>;
+  lockedTargetN: number | null;
+} {
+  const assignmentRows = db
     .prepare(
       `
-      SELECT s.*, tp.condition, tp.scenario_id
+      SELECT a.*, p.participant_label, p.access_code
+      FROM assignments a
+      JOIN participants p ON p.id = a.participant_id
+      ORDER BY a.created_at DESC
+      `
+    )
+    .all() as Array<
+    AssignmentRow & {
+      participant_label: string;
+      access_code: string;
+    }
+  >;
+
+  const sessionRows = db
+    .prepare(
+      `
+      SELECT s.id, s.participant_id, p.participant_label, p.access_code, s.status, s.current_trial_index,
+             s.current_state, s.created_at, s.updated_at,
+             tp.condition, tp.scenario_id
       FROM sessions s
+      JOIN participants p ON p.id = s.participant_id
       LEFT JOIN trial_plan tp ON tp.session_id = s.id AND tp.trial_index = s.current_trial_index
-      ORDER BY s.created_at DESC
+      WHERE s.is_playground = 0
+      ORDER BY s.updated_at DESC
       `
     )
     .all() as Array<Record<string, unknown>>;
 
-  const cellCounts = db
-    .prepare("SELECT cell_id, COUNT(*) as count FROM assignments GROUP BY cell_id ORDER BY cell_id")
-    .all() as Array<Record<string, unknown>>;
+  const progressRows = db
+    .prepare(
+      "SELECT session_id, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completedTrials, COUNT(*) as totalTrials FROM trial_plan GROUP BY session_id"
+    )
+    .all() as Array<{ session_id: string; completedTrials: number; totalTrials: number }>;
 
-  return { assignments, sessions, cellCounts };
+  const progressMap = new Map<string, { completedTrials: number; totalTrials: number }>();
+  for (const row of progressRows) {
+    progressMap.set(row.session_id, {
+      completedTrials: row.completedTrials,
+      totalTrials: row.totalTrials
+    });
+  }
+
+  const latestSessionByParticipant = new Map<string, Record<string, unknown>>();
+  for (const session of sessionRows) {
+    const participantId = String(session.participant_id);
+    if (!latestSessionByParticipant.has(participantId)) {
+      latestSessionByParticipant.set(participantId, session);
+    }
+  }
+
+  const byCell = new Map<string, Array<{
+    participantId: string;
+    participantLabel: string;
+    accessCode: string;
+    sessionId: string | null;
+    sessionStatus: string;
+    currentState: StudyState | null;
+    currentTrialIndex: number | null;
+    completedTrials: number;
+    totalTrials: number;
+  }>>();
+
+  for (const assignment of assignmentRows) {
+    const latestSession = latestSessionByParticipant.get(assignment.participant_id);
+    const sessionId = latestSession ? String(latestSession.id) : null;
+    const progress = sessionId ? progressMap.get(sessionId) : undefined;
+
+    const participantStatus = {
+      participantId: assignment.participant_id,
+      participantLabel: assignment.participant_label,
+      accessCode: assignment.access_code,
+      sessionId,
+      sessionStatus: latestSession ? String(latestSession.status) : "none",
+      currentState: latestSession ? (String(latestSession.current_state) as StudyState) : null,
+      currentTrialIndex: latestSession ? Number(latestSession.current_trial_index) : null,
+      completedTrials: progress?.completedTrials ?? 0,
+      totalTrials: progress?.totalTrials ?? 0
+    };
+
+    const list = byCell.get(assignment.cell_id) ?? [];
+    list.push(participantStatus);
+    byCell.set(assignment.cell_id, list);
+  }
+
+  const cells = getCounterbalanceCells().map((cell) => {
+    const participants = (byCell.get(cell.cellId) ?? []).sort((a, b) =>
+      a.participantLabel.localeCompare(b.participantLabel)
+    );
+
+    return {
+      cellId: cell.cellId,
+      scenarioFirst: cell.scenarioFirst,
+      roleOrderId: cell.roleOrderId,
+      conditionOrder: cell.conditionOrder,
+      count: participants.length,
+      participants
+    };
+  });
+
+  const lockRow = getTargetNLockInfo();
+
+  const lockedTargetN =
+    lockRow.count > 0 && lockRow.distinctCount === 1 ? lockRow.lockedTargetN : null;
+
+  return { cells, sessions: sessionRows, lockedTargetN };
 }
 
 export function exportAllData(): Record<string, unknown> {
   const tableNames = [
+    "participants",
     "assignments",
     "sessions",
     "trial_plan",
@@ -478,7 +869,9 @@ export function exportAllData(): Record<string, unknown> {
     "ai_calls",
     "revisor_suggestions",
     "facilitator_reflections",
-    "surveys"
+    "surveys",
+    "post_study_surveys",
+    "survey_templates"
   ];
 
   const output: Record<string, unknown> = {};

@@ -1,24 +1,9 @@
-import { transitionSessionState } from "@/lib/sessionManager";
+import { submitPostStudySurvey } from "@/lib/sessionManager";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 const bodySchema = z.object({
-  toState: z.enum([
-    "scenario_intro",
-    "bullet_input",
-    "human_drafting",
-    "ai_generation",
-    "ai_revision",
-    "reflection_questions",
-    "reflection_summary",
-    "independent_drafting",
-    "optional_feedback",
-    "final_edit",
-    "post_condition_survey",
-    "inter_condition_buffer",
-    "post_study_survey"
-  ]),
-  payload: z.unknown().optional()
+  responses: z.record(z.unknown())
 });
 
 export async function POST(
@@ -28,11 +13,12 @@ export async function POST(
   try {
     const { sessionId } = await context.params;
     const parsed = bodySchema.parse(await request.json());
-    const result = transitionSessionState({
+
+    const result = submitPostStudySurvey({
       sessionId,
-      toState: parsed.toState,
-      payload: parsed.payload
+      responses: parsed.responses
     });
+
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

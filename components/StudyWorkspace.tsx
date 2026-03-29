@@ -1,5 +1,6 @@
 "use client";
 
+import { SurveyQuestionField, type SurveyValue } from "@/components/surveys/SurveyQuestionField";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -16,12 +17,33 @@ type StudyState =
   | "optional_feedback"
   | "final_edit"
   | "post_condition_survey"
-  | "inter_condition_buffer";
+  | "inter_condition_buffer"
+  | "post_study_survey";
+
+type SurveyItem = {
+  id: string;
+  prompt: string;
+  type: "likert" | "open_text" | "multiple_choice";
+  required: boolean;
+  condition: Condition | "all";
+  scaleMin?: number;
+  scaleMax?: number;
+  options?: string[];
+};
+
+type SurveyTemplate = {
+  id: "per_condition" | "post_study";
+  title: string;
+  intro: string;
+  items: SurveyItem[];
+};
 
 type SessionPayload = {
   session: {
     id: string;
     participantId: string;
+    participantLabel: string;
+    accessCode: string;
     isPlayground: boolean;
     status: "active" | "completed";
     currentTrialIndex: number;
@@ -48,6 +70,9 @@ type SessionPayload = {
     order_position: number;
     status: string;
   }>;
+  conditionSurveyTemplate: SurveyTemplate;
+  postStudySurveyTemplate: SurveyTemplate;
+  completionCode: string;
 };
 
 type Suggestion = {
@@ -67,14 +92,6 @@ type FacilitatorOutput = {
   reminderChecklist: string[];
   highLevelFeedback?: string[];
 };
-
-const SPMA_ITEMS = [
-  "This message feels like it reflects my own voice.",
-  "I feel psychological ownership over the final message.",
-  "The final message expresses what I genuinely wanted to say.",
-  "I would describe this message as personally authentic.",
-  "I feel the message represents me, not the AI."
-];
 
 function getPromptText(condition: Condition, state: StudyState): string {
   const prompts: Record<Condition, Partial<Record<StudyState, string>>> = {
@@ -104,7 +121,38 @@ function getPromptText(condition: Condition, state: StudyState): string {
   return prompts[condition][state] ?? "Follow state instructions in the interface.";
 }
 
-export function StudyWorkspace({ sessionId }: { sessionId: string }) {
+function visibleSurveyItems(template: SurveyTemplate, condition?: Condition): SurveyItem[] {
+  if (!condition) {
+    return template.items;
+  }
+  return template.items.filter((item) => item.condition === "all" || item.condition === condition);
+}
+
+function missingRequiredItems(items: SurveyItem[], answers: Record<string, SurveyValue>): string[] {
+  return items
+    .filter((item) => item.required)
+    .filter((item) => {
+      const value = answers[item.id];
+      if (value === undefined || value === null) {
+        return true;
+      }
+      if (typeof value === "string") {
+        return value.trim().length === 0;
+      }
+      return false;
+    })
+    .map((item) => item.prompt);
+}
+
+export function StudyWorkspace({
+  sessionId,
+  portalMode = "researcher",
+  participantAccessCode
+}: {
+  sessionId: string;
+  portalMode?: "researcher" | "participant";
+  participantAccessCode?: string;
+}) {
   const [snapshot, setSnapshot] = useState<SessionPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -120,8 +168,8 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
   const [facilitatorOutput, setFacilitatorOutput] = useState<FacilitatorOutput | null>(null);
   const [questionAnswers, setQuestionAnswers] = useState<Record<number, string>>({});
 
-  const [surveyScale, setSurveyScale] = useState<Record<string, number>>({});
-  const [surveyComment, setSurveyComment] = useState("");
+  const [conditionSurveyAnswers, setConditionSurveyAnswers] = useState<Record<string, SurveyValue>>({});
+  const [postStudyAnswers, setPostStudyAnswers] = useState<Record<string, SurveyValue>>({});
 
   const seenPromptKeys = useRef<Set<string>>(new Set());
   const [clock, setClock] = useState(Date.now());
@@ -190,10 +238,13 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
     setSuggestionActions({});
     setFacilitatorOutput(null);
     setQuestionAnswers({});
-    setSurveyScale({});
-    setSurveyComment("");
+    setConditionSurveyAnswers({});
     seenPromptKeys.current.clear();
   }, [trialIdentity]);
+
+  useEffect(() => {
+    setPostStudyAnswers({});
+  }, [sessionId]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
@@ -201,9 +252,10 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
   }, []);
 
   useEffect(() => {
-    if (!snapshot) {
+    if (!snapshot || snapshot.session.currentState === "post_study_survey") {
       return;
     }
+
     const key = `${trialIdentity}:${snapshot.session.currentState}`;
     if (seenPromptKeys.current.has(key)) {
       return;
@@ -219,7 +271,7 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
   }, [logEvent, snapshot, trialIdentity]);
 
   useEffect(() => {
-    if (!snapshot) {
+    if (!snapshot || snapshot.session.currentState === "post_study_survey") {
       return;
     }
 
@@ -235,7 +287,7 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
   }, [editorText, logEvent, snapshot]);
 
   useEffect(() => {
-    if (!snapshot) {
+    if (!snapshot || snapshot.session.currentState === "post_study_survey") {
       return;
     }
 
@@ -281,6 +333,9 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
     setBusy(true);
     setError("");
     try {
+      await fetchJson(`/api/session/${sessionId}/start-trial`, {
+        method: "POST"
+      });
       await transition(toState);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start condition");
@@ -331,14 +386,11 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
     setError("");
     try {
       await transition("ai_revision", { messageLength: editorText.length });
-      const json = await fetchJson<{ suggestions: Suggestion[] }>(
-        `/api/session/${sessionId}/ai`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "revisor_suggest", message: editorText })
-        }
-      );
+      const json = await fetchJson<{ suggestions: Suggestion[] }>(`/api/session/${sessionId}/ai`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "revisor_suggest", message: editorText })
+      });
 
       setSuggestions(json.suggestions);
       const actions: Record<number, string> = {};
@@ -508,14 +560,17 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
       return;
     }
 
-    const surveyResponses: Record<string, unknown> = {
-      spma: SPMA_ITEMS.map((_item, index) => surveyScale[`spma_${index}`] ?? null),
-      effort_1: surveyScale.effort_1 ?? null,
-      effort_2: surveyScale.effort_2 ?? null,
-      effort_3: surveyScale.effort_3 ?? null,
-      willingness_to_send: surveyScale.willingness ?? null,
-      open_comment: surveyComment
-    };
+    const surveyItems = visibleSurveyItems(snapshot.conditionSurveyTemplate, snapshot.currentTrial.condition);
+    const missing = missingRequiredItems(surveyItems, conditionSurveyAnswers);
+    if (missing.length > 0) {
+      setError("Please complete all required post-condition survey fields.");
+      return;
+    }
+
+    const surveyResponses: Record<string, unknown> = {};
+    for (const item of surveyItems) {
+      surveyResponses[item.id] = conditionSurveyAnswers[item.id] ?? null;
+    }
 
     setBusy(true);
     setError("");
@@ -538,12 +593,50 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
     }
   }
 
+  async function submitPostStudySurvey(): Promise<void> {
+    if (!snapshot) {
+      return;
+    }
+
+    const surveyItems = visibleSurveyItems(snapshot.postStudySurveyTemplate);
+    const missing = missingRequiredItems(surveyItems, postStudyAnswers);
+    if (missing.length > 0) {
+      setError("Please complete all required final survey fields.");
+      return;
+    }
+
+    const responses: Record<string, unknown> = {};
+    for (const item of surveyItems) {
+      responses[item.id] = postStudyAnswers[item.id] ?? null;
+    }
+
+    setBusy(true);
+    setError("");
+    try {
+      await fetchJson(`/api/session/${sessionId}/post-study-submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ responses })
+      });
+      await loadSnapshot();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Final survey submission failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const editorEnabled = useMemo(() => {
     if (!snapshot) {
       return false;
     }
     const state = snapshot.session.currentState;
-    if (state === "human_drafting" || state === "ai_revision" || state === "final_edit" || state === "post_condition_survey") {
+    if (
+      state === "human_drafting" ||
+      state === "ai_revision" ||
+      state === "final_edit" ||
+      state === "post_condition_survey"
+    ) {
       return true;
     }
     if (state === "independent_drafting" || state === "optional_feedback") {
@@ -560,7 +653,7 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
     return (
       <div className="card">
         <p>{error}</p>
-        <Link href="/researcher">Back to researcher panel</Link>
+        {portalMode === "participant" ? <Link href="/study">Back to study login</Link> : <Link href="/researcher">Back to researcher panel</Link>}
       </div>
     );
   }
@@ -572,13 +665,25 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
   if (snapshot.session.status === "completed") {
     return (
       <div className="card">
-        <h1>Session Complete</h1>
-        <p>Participant: {snapshot.session.participantId}</p>
-        <p>All condition trials are complete and logged.</p>
-        <div style={{ display: "flex", gap: "0.6rem" }}>
-          <Link href="/researcher">
-            <button type="button">Back to Control Panel</button>
-          </Link>
+        <h1>Study Complete</h1>
+        <p>
+          {portalMode === "participant"
+            ? `Access code: ${participantAccessCode ?? snapshot.session.accessCode}`
+            : `Participant: ${snapshot.session.participantLabel} (${snapshot.session.accessCode})`}
+        </p>
+        <p>
+          Completion code: <strong>{snapshot.completionCode}</strong>
+        </p>
+        <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+          {portalMode === "researcher" ? (
+            <Link href="/researcher">
+              <button type="button">Back to Console</button>
+            </Link>
+          ) : (
+            <Link href="/study">
+              <button type="button">Return to Login</button>
+            </Link>
+          )}
           <a href="/api/researcher/export" target="_blank" rel="noreferrer">
             <button type="button">Export Data</button>
           </a>
@@ -590,17 +695,63 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
   const currentState = snapshot.session.currentState;
   const condition = snapshot.currentTrial.condition;
 
+  if (currentState === "post_study_survey") {
+    const finalItems = visibleSurveyItems(snapshot.postStudySurveyTemplate);
+
+    return (
+      <div className="card" style={{ maxWidth: 860, margin: "0 auto" }}>
+        <h1>{snapshot.postStudySurveyTemplate.title}</h1>
+        <p style={{ color: "var(--muted)" }}>{snapshot.postStudySurveyTemplate.intro}</p>
+        <p style={{ color: "var(--muted)" }}>
+          All condition blocks are complete. Submit this final survey to finish the study.
+        </p>
+
+        <div style={{ display: "grid", gap: "0.8rem" }}>
+          {finalItems.map((item) => (
+            <SurveyQuestionField
+              key={item.id}
+              item={item}
+              value={postStudyAnswers[item.id]}
+              disabled={busy}
+              onChange={(next) => setPostStudyAnswers((prev) => ({ ...prev, [item.id]: next }))}
+            />
+          ))}
+        </div>
+
+        <div style={{ marginTop: "1rem", display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+          <button className="primary" type="button" disabled={busy} onClick={() => void submitPostStudySurvey()}>
+            Submit Final Survey
+          </button>
+        </div>
+
+        {error ? <p style={{ color: "var(--warn)" }}>{error}</p> : null}
+      </div>
+    );
+  }
+
+  const conditionSurveyItems = visibleSurveyItems(snapshot.conditionSurveyTemplate, condition);
+
   return (
     <div className="layout-grid">
       <section className="card">
         <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
           <div>
-            <strong>Session:</strong> {snapshot.session.id.slice(0, 8)} | <strong>Participant:</strong>{" "}
-            {snapshot.session.participantId}
+            {portalMode === "participant" ? (
+              <>
+                <strong>Access Code:</strong> {participantAccessCode ?? snapshot.session.accessCode}
+              </>
+            ) : (
+              <>
+                <strong>Session:</strong> {snapshot.session.id.slice(0, 8)} | <strong>Participant:</strong>{" "}
+                {snapshot.session.participantLabel} ({snapshot.session.accessCode})
+              </>
+            )}
           </div>
           <div>
-            <span className="tag">Condition: {conditionLabel}</span>{" "}
-            <span className="tag">State: {currentState}</span>{" "}
+            <span className="tag">Block {snapshot.currentTrial.order_position} of {snapshot.allTrials.length}</span>{" "}
+            {portalMode === "researcher" ? <span className="tag">Condition: {conditionLabel}</span> : null}{" "}
+            <span className="tag">Scenario: {snapshot.currentTrial.scenario_id === "scenario_1" ? "1" : "2"}</span>{" "}
+            {portalMode === "researcher" ? <span className="tag">State: {currentState}</span> : null}{" "}
             <span className="tag">Elapsed: {elapsedSeconds}s</span>
           </div>
         </div>
@@ -608,7 +759,9 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
         <div style={{ marginTop: "0.7rem", display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
           {snapshot.allTrials.map((trial) => (
             <span key={trial.trial_index} className="tag">
-              T{trial.trial_index + 1} {trial.scenario_id}/{trial.condition}/{trial.status}
+              {portalMode === "participant"
+                ? `Situation ${trial.trial_index + 1} ${trial.status}`
+                : `T${trial.trial_index + 1} ${trial.scenario_id}/${trial.condition}/${trial.status}`}
             </span>
           ))}
         </div>
@@ -638,7 +791,7 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
           <div style={{ marginTop: "0.7rem", display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
             {currentState === "scenario_intro" ? (
               <button className="primary" disabled={busy} onClick={() => void startConditionFlow()}>
-                Start Condition
+                Start When Ready
               </button>
             ) : null}
 
@@ -650,7 +803,7 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
 
             {currentState === "post_condition_survey" ? (
               <button className="primary" disabled={busy} onClick={() => void submitSurveyAndAdvance()}>
-                Submit Condition + Advance
+                Submit Condition + Continue
               </button>
             ) : null}
           </div>
@@ -664,7 +817,9 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
           {condition === "drafter" ? (
             <div style={{ display: "grid", gap: "0.7rem" }}>
               <p style={{ color: "var(--muted)" }}>
-                Drafter flow: bullet input first, one generation, then free editing.
+                {portalMode === "participant"
+                  ? "Use the guided writing assistant for this situation."
+                  : "Drafter flow: bullet input first, one generation, then free editing."}
               </p>
               {(currentState === "bullet_input" || currentState === "ai_generation") && (
                 <>
@@ -710,8 +865,9 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
           {condition === "revisor" ? (
             <div style={{ display: "grid", gap: "0.7rem" }}>
               <p style={{ color: "var(--muted)" }}>
-                Revisor flow: write alone first, request structured revision suggestions, then
-                accept/reject/modify.
+                {portalMode === "participant"
+                  ? "Write first, then review suggestion cards to refine your message."
+                  : "Revisor flow: write alone first, request structured revision suggestions, then accept/reject/modify."}
               </p>
 
               {currentState === "human_drafting" ? (
@@ -738,15 +894,9 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
                         <strong>Status:</strong> {suggestionActions[suggestion.id] ?? "pending"}
                       </p>
                       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => void applySuggestion(suggestion, "accept")}>
-                          Accept
-                        </button>
-                        <button type="button" onClick={() => void applySuggestion(suggestion, "modify")}>
-                          Modify
-                        </button>
-                        <button type="button" onClick={() => void applySuggestion(suggestion, "reject")}>
-                          Reject
-                        </button>
+                        <button type="button" onClick={() => void applySuggestion(suggestion, "accept")}>Accept</button>
+                        <button type="button" onClick={() => void applySuggestion(suggestion, "modify")}>Modify</button>
+                        <button type="button" onClick={() => void applySuggestion(suggestion, "reject")}>Reject</button>
                       </div>
                     </div>
                   ))}
@@ -762,8 +912,9 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
           {condition === "facilitator" ? (
             <div style={{ display: "grid", gap: "0.7rem" }}>
               <p style={{ color: "var(--muted)" }}>
-                Facilitator flow: reflective Q&amp;A and planning support only, then independent
-                drafting.
+                {portalMode === "participant"
+                  ? "Answer reflection prompts, then draft independently."
+                  : "Facilitator flow: reflective Q&A and planning support only, then independent drafting."}
               </p>
 
               {currentState === "bullet_input" ? (
@@ -884,105 +1035,25 @@ export function StudyWorkspace({ sessionId }: { sessionId: string }) {
 
           {currentState === "post_condition_survey" ? (
             <div className="card" style={{ marginTop: "0.8rem" }}>
-              <h3>Post-Condition Survey</h3>
-              <p style={{ color: "var(--muted)" }}>
-                Items are recorded immediately for manipulation checks and main outcomes.
-              </p>
+              <h3>{snapshot.conditionSurveyTemplate.title}</h3>
+              <p style={{ color: "var(--muted)" }}>{snapshot.conditionSurveyTemplate.intro}</p>
 
-              {SPMA_ITEMS.map((item, idx) => (
-                <label key={item}>
-                  SPMA {idx + 1}: {item}
-                  <select
-                    value={surveyScale[`spma_${idx}`] ?? ""}
-                    onChange={(event) =>
-                      setSurveyScale((prev) => ({ ...prev, [`spma_${idx}`]: Number(event.target.value) }))
+              <div style={{ display: "grid", gap: "0.7rem" }}>
+                {conditionSurveyItems.map((item) => (
+                  <SurveyQuestionField
+                    key={item.id}
+                    item={item}
+                    value={conditionSurveyAnswers[item.id]}
+                    disabled={busy}
+                    onChange={(next) =>
+                      setConditionSurveyAnswers((prev) => ({
+                        ...prev,
+                        [item.id]: next
+                      }))
                     }
-                  >
-                    <option value="">Select</option>
-                    {[1, 2, 3, 4, 5, 6, 7].map((num) => (
-                      <option key={num} value={num}>
-                        {num}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
-
-              <label>
-                Effort Item 1 (mental demand)
-                <select
-                  value={surveyScale.effort_1 ?? ""}
-                  onChange={(event) =>
-                    setSurveyScale((prev) => ({ ...prev, effort_1: Number(event.target.value) }))
-                  }
-                >
-                  <option value="">Select</option>
-                  {[1, 2, 3, 4, 5, 6, 7].map((num) => (
-                    <option key={num} value={num}>
-                      {num}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Effort Item 2 (effort required)
-                <select
-                  value={surveyScale.effort_2 ?? ""}
-                  onChange={(event) =>
-                    setSurveyScale((prev) => ({ ...prev, effort_2: Number(event.target.value) }))
-                  }
-                >
-                  <option value="">Select</option>
-                  {[1, 2, 3, 4, 5, 6, 7].map((num) => (
-                    <option key={num} value={num}>
-                      {num}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Effort Item 3 (difficulty)
-                <select
-                  value={surveyScale.effort_3 ?? ""}
-                  onChange={(event) =>
-                    setSurveyScale((prev) => ({ ...prev, effort_3: Number(event.target.value) }))
-                  }
-                >
-                  <option value="">Select</option>
-                  {[1, 2, 3, 4, 5, 6, 7].map((num) => (
-                    <option key={num} value={num}>
-                      {num}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Willingness to send this message
-                <select
-                  value={surveyScale.willingness ?? ""}
-                  onChange={(event) =>
-                    setSurveyScale((prev) => ({ ...prev, willingness: Number(event.target.value) }))
-                  }
-                >
-                  <option value="">Select</option>
-                  {[1, 2, 3, 4, 5, 6, 7].map((num) => (
-                    <option key={num} value={num}>
-                      {num}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label>
-                Open comment
-                <textarea
-                  value={surveyComment}
-                  onChange={(event) => setSurveyComment(event.target.value)}
-                />
-              </label>
+                  />
+                ))}
+              </div>
             </div>
           ) : null}
         </section>

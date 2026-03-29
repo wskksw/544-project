@@ -13,7 +13,8 @@ const conditionTransitions: Record<RoleCondition, Record<StudyState, StudyState[
     reflection_summary: [],
     independent_drafting: [],
     optional_feedback: [],
-    inter_condition_buffer: []
+    inter_condition_buffer: [],
+    post_study_survey: []
   },
   revisor: {
     scenario_intro: ["human_drafting"],
@@ -27,7 +28,8 @@ const conditionTransitions: Record<RoleCondition, Record<StudyState, StudyState[
     reflection_summary: [],
     independent_drafting: [],
     optional_feedback: [],
-    inter_condition_buffer: []
+    inter_condition_buffer: [],
+    post_study_survey: []
   },
   facilitator: {
     scenario_intro: ["bullet_input"],
@@ -41,7 +43,8 @@ const conditionTransitions: Record<RoleCondition, Record<StudyState, StudyState[
     human_drafting: [],
     ai_generation: [],
     ai_revision: [],
-    inter_condition_buffer: []
+    inter_condition_buffer: [],
+    post_study_survey: []
   }
 };
 

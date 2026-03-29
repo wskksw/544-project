@@ -8,7 +8,7 @@ export default async function SessionPage({
   const { sessionId } = await params;
   return (
     <main>
-      <StudyWorkspace sessionId={sessionId} />
+      <StudyWorkspace sessionId={sessionId} portalMode="researcher" />
     </main>
   );
 }

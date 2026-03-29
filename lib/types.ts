@@ -1,5 +1,7 @@
 export type RoleCondition = "drafter" | "revisor" | "facilitator";
 
+export type SessionStatus = "active" | "completed";
+
 export type StudyState =
   | "scenario_intro"
   | "bullet_input"
@@ -12,7 +14,8 @@ export type StudyState =
   | "optional_feedback"
   | "final_edit"
   | "post_condition_survey"
-  | "inter_condition_buffer";
+  | "inter_condition_buffer"
+  | "post_study_survey";
 
 export type Scenario = {
   id: string;
@@ -32,15 +35,36 @@ export type TrialPlan = {
 export type AssignmentCell = {
   cellId: string;
   scenarioFirst: "scenario_1" | "scenario_2";
-  patternId: "P1" | "P2" | "P3";
-  scenario1Order: RoleCondition[];
-  scenario2Order: RoleCondition[];
+  roleOrderId: string;
+  conditionOrder: RoleCondition[];
+};
+
+export type SurveyItemType = "likert" | "open_text" | "multiple_choice";
+
+export type SurveyItem = {
+  id: string;
+  prompt: string;
+  type: SurveyItemType;
+  required: boolean;
+  condition: RoleCondition | "all";
+  scaleMin?: number;
+  scaleMax?: number;
+  options?: string[];
+};
+
+export type SurveyTemplateId = "per_condition" | "post_study";
+
+export type SurveyTemplate = {
+  id: SurveyTemplateId;
+  title: string;
+  intro: string;
+  items: SurveyItem[];
 };
 
 export type SessionEnvelope = {
   sessionId: string;
   participantId: string;
-  status: "active" | "completed";
+  status: SessionStatus;
   currentTrialIndex: number;
   currentState: StudyState;
   isPlayground: boolean;

@@ -1,0 +1,26 @@
+import { cn } from "@/lib/utils";
+import type { HTMLAttributes, TableHTMLAttributes, TdHTMLAttributes, ThHTMLAttributes } from "react";
+
+export function Table({ className, ...props }: TableHTMLAttributes<HTMLTableElement>) {
+  return <table className={cn("ui-table", className)} {...props} />;
+}
+
+export function TableHead({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
+  return <thead className={cn("ui-table-head", className)} {...props} />;
+}
+
+export function TableBody({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
+  return <tbody className={cn("ui-table-body", className)} {...props} />;
+}
+
+export function TableRow({ className, ...props }: HTMLAttributes<HTMLTableRowElement>) {
+  return <tr className={cn("ui-table-row", className)} {...props} />;
+}
+
+export function TableHeaderCell({ className, ...props }: ThHTMLAttributes<HTMLTableCellElement>) {
+  return <th className={cn("ui-table-header-cell", className)} {...props} />;
+}
+
+export function TableCell({ className, ...props }: TdHTMLAttributes<HTMLTableCellElement>) {
+  return <td className={cn("ui-table-cell", className)} {...props} />;
+}

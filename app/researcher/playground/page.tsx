@@ -1,5 +1,9 @@
 "use client";
 
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -33,41 +37,45 @@ export default function PlaygroundPage() {
   }
 
   return (
-    <main>
-      <div className="card" style={{ maxWidth: 640 }}>
-        <h1>Condition Playground</h1>
-        <p style={{ color: "var(--muted)" }}>
-          Create a sandbox one-trial session to manually test any condition and scenario.
-        </p>
+    <main className="page-stack">
+      <Card style={{ maxWidth: 640 }}>
+        <CardHeader>
+          <CardTitle>Condition Playground</CardTitle>
+          <CardDescription>
+            Create a sandbox one-trial session to manually test any condition and scenario.
+          </CardDescription>
+        </CardHeader>
 
-        <label>
-          Condition
-          <select value={condition} onChange={(event) => setCondition(event.target.value)}>
-            <option value="drafter">Drafter</option>
-            <option value="revisor">Revisor</option>
-            <option value="facilitator">Facilitator</option>
-          </select>
-        </label>
+        <CardContent className="stack-md">
+          <Label>
+            Condition
+            <Select value={condition} onChange={(event) => setCondition(event.target.value)}>
+              <option value="drafter">Drafter</option>
+              <option value="revisor">Revisor</option>
+              <option value="facilitator">Facilitator</option>
+            </Select>
+          </Label>
 
-        <label style={{ marginTop: "0.8rem", display: "block" }}>
-          Scenario
-          <select value={scenarioId} onChange={(event) => setScenarioId(event.target.value)}>
-            <option value="scenario_1">Scenario 1</option>
-            <option value="scenario_2">Scenario 2</option>
-          </select>
-        </label>
+          <Label>
+            Scenario
+            <Select value={scenarioId} onChange={(event) => setScenarioId(event.target.value)}>
+              <option value="scenario_1">Scenario 1</option>
+              <option value="scenario_2">Scenario 2</option>
+            </Select>
+          </Label>
 
-        <div style={{ marginTop: "1rem", display: "flex", gap: "0.6rem" }}>
-          <button className="primary" type="button" disabled={loading} onClick={() => void launch()}>
-            Launch Playground Session
-          </button>
-          <Link href="/researcher">
-            <button type="button">Back to Control Panel</button>
-          </Link>
-        </div>
+          <div className="row-wrap">
+            <Button disabled={loading} onClick={() => void launch()}>
+              Launch Playground Session
+            </Button>
+            <Link className={buttonVariants({ variant: "outline" })} href="/researcher">
+              Back to Control Panel
+            </Link>
+          </div>
 
-        {error ? <p style={{ color: "var(--warn)", marginTop: "0.8rem" }}>{error}</p> : null}
-      </div>
+          {error ? <p className="text-warning">{error}</p> : null}
+        </CardContent>
+      </Card>
     </main>
   );
 }

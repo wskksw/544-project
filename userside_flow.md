@@ -1,0 +1,47 @@
+```mermaid
+flowchart TD
+    A[Open /study] --> B[Enter access code]
+    B --> C[POST /api/study/login]
+    C --> D[Open /study/:accessCode]
+    D --> E[GET /api/session/:sessionId snapshot]
+
+    E --> F{Session status}
+    F -->|completed| Z[Completion screen + compensation code]
+    F -->|active| G{Current state}
+
+    G -->|scenario_intro| H[Click Start When Ready timer starts]
+    H --> I{Condition type}
+
+    I -->|drafter| D1[bullet_input 3-5 bullets]
+    D1 --> D2[POST /api/session/:id/ai drafter_generate]
+    D2 --> D3[final_edit]
+
+    I -->|revisor| R1[human_drafting]
+    R1 --> R2[POST /api/session/:id/ai revisor_suggest]
+    R2 --> R3[POST /api/session/:id/revisor-action]
+    R3 --> R4[final_edit]
+
+    I -->|facilitator| F1[bullet_input >=3 bullets]
+    F1 --> F2[POST /api/session/:id/ai facilitator_questions]
+    F2 --> F3[reflection_questions]
+    F3 --> F4[POST /api/session/:id/ai facilitator_summary]
+    F4 --> F5[independent_drafting]
+    F5 --> F6{Optional feedback}
+    F6 -->|Yes| F7[POST /api/session/:id/ai facilitator_feedback]
+    F6 -->|No| F8[Skip to final_edit]
+    F7 --> F8
+
+    D3 --> S1[post_condition_survey]
+    R4 --> S1
+    F8 --> S1
+
+    S1 --> S2[Submit condition survey]
+    S2 --> S3[POST /api/session/:id/submit]
+    S3 --> S4{More trials remaining}
+    S4 -->|Yes| E
+    S4 -->|No| P1[post_study_survey]
+
+    P1 --> P2[Submit final survey]
+    P2 --> P3[POST /api/session/:id/post-study-submit]
+    P3 --> Z
+```

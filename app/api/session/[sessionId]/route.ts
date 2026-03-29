@@ -1,5 +1,6 @@
 import { getScenarioById } from "@/lib/scenarios";
-import { getSessionSnapshot } from "@/lib/sessionManager";
+import { getCompletionCode, getSessionSnapshot } from "@/lib/sessionManager";
+import { getSurveyTemplate } from "@/lib/surveys";
 import { NextResponse } from "next/server";
 
 export async function GET(
@@ -15,6 +16,8 @@ export async function GET(
       session: {
         id: snapshot.session.id,
         participantId: snapshot.session.participant_id,
+        participantLabel: snapshot.session.participant_label,
+        accessCode: snapshot.session.access_code,
         isPlayground: Boolean(snapshot.session.is_playground),
         status: snapshot.session.status,
         currentTrialIndex: snapshot.session.current_trial_index,
@@ -24,7 +27,10 @@ export async function GET(
         ...snapshot.currentTrial,
         scenario
       },
-      allTrials: snapshot.allTrials
+      allTrials: snapshot.allTrials,
+      conditionSurveyTemplate: getSurveyTemplate("per_condition"),
+      postStudySurveyTemplate: getSurveyTemplate("post_study"),
+      completionCode: getCompletionCode(snapshot.session.id)
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
