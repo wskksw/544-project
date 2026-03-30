@@ -129,8 +129,10 @@ export async function generateEditorSuggestions(params: {
     "The four categories must be: tone, specificity, empathy, closing_next_step.",
     "Revise wording only. Preserve the participant's underlying intent.",
     "Do not introduce new factual claims beyond what is already in the draft or clearly implied by the scenario.",
+    "IMPORTANT: originalSegment must be a complete sentence (or the full clause up to terminal punctuation) copied verbatim from the draft — never a partial phrase.",
+    "suggestedChange must be a complete replacement sentence of the same scope.",
     "Return strict JSON with this exact schema:",
-    '{"suggestions":[{"originalSegment":"...","suggestedChange":"...","category":"tone|specificity|empathy|closing_next_step","reasonText":"..."}]}'
+    '{"suggestions":[{"originalSegment":"<full sentence from draft>","suggestedChange":"<full replacement sentence>","category":"tone|specificity|empathy|closing_next_step","reasonText":"..."}]}'
   ].join(" ");
 
   const userPrompt = [

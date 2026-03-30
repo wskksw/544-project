@@ -214,6 +214,26 @@ function missingRequiredItems(items: SurveyItem[], answers: Record<string, Surve
     .map((item) => item.prompt);
 }
 
+function expandToFullSentence(fullText: string, segment: string): string {
+  const idx = fullText.indexOf(segment);
+  if (idx === -1) return segment;
+  let start = 0;
+  for (let i = idx - 1; i >= 0; i--) {
+    const ch = fullText[i];
+    if (ch === "." || ch === "!" || ch === "?") { start = i + 2; break; }
+    if (ch === "\n") { start = i + 1; break; }
+  }
+  while (start < idx && fullText[start] === " ") start++;
+  const segEnd = idx + segment.length;
+  let end = fullText.length;
+  for (let i = segEnd; i < fullText.length; i++) {
+    const ch = fullText[i];
+    if (ch === "." || ch === "!" || ch === "?") { end = i + 1; break; }
+    if (ch === "\n") { end = i; break; }
+  }
+  return fullText.slice(start, end).trim();
+}
+
 function countWords(text: string): number {
   const trimmed = text.trim();
   return trimmed ? trimmed.split(/\s+/).length : 0;
@@ -248,6 +268,9 @@ export function StudyWorkspace({
   const [postStudyAnswers, setPostStudyAnswers] = useState<Record<string, SurveyValue>>({});
   const [practiceText, setPracticeText] = useState("");
   const [practiceSurveyAnswers, setPracticeSurveyAnswers] = useState<Record<string, SurveyValue>>({});
+
+  const [modifyingId, setModifyingId] = useState<number | null>(null);
+  const [modifyText, setModifyText] = useState("");
 
   const [keystrokeCount, setKeystrokeCount] = useState(0);
   const [ghostWriterEditCount, setGhostWriterEditCount] = useState(0);
@@ -323,6 +346,8 @@ export function StudyWorkspace({
     setHasGeneratedDraft(false);
     setSuggestions([]);
     setSuggestionActions({});
+    setModifyingId(null);
+    setModifyText("");
     setThoughtPartnerOutput(null);
     setQuestionAnswers({});
     setActiveQuestionIndex(0);
@@ -578,25 +603,30 @@ export function StudyWorkspace({
     }
   }
 
-  async function applySuggestion(suggestion: Suggestion, action: "accept" | "reject" | "modify"): Promise<void> {
+  async function applySuggestion(suggestion: Suggestion, action: "accept" | "reject" | "modify", modifiedText?: string): Promise<void> {
     let userModifiedText: string | null = null;
 
+    // Use the full-sentence span for replacement so the swap is always a complete sentence
+    const replaceTarget = expandToFullSentence(editorText, suggestion.originalSegment);
+
     if (action === "accept") {
-      if (editorText.includes(suggestion.originalSegment)) {
+      if (editorText.includes(replaceTarget)) {
+        setEditorText(editorText.replace(replaceTarget, suggestion.suggestedChange));
+      } else if (editorText.includes(suggestion.originalSegment)) {
         setEditorText(editorText.replace(suggestion.originalSegment, suggestion.suggestedChange));
       }
-      // if originalSegment not found in current text, don't modify (user may have already edited that section)
     }
 
     if (action === "modify") {
-      userModifiedText = window.prompt("Enter your modified version of this suggestion:", suggestion.suggestedChange) ?? "";
-      if (!userModifiedText.trim()) {
+      userModifiedText = modifiedText?.trim() ?? "";
+      if (!userModifiedText) {
         return;
       }
-      if (editorText.includes(suggestion.originalSegment)) {
+      if (editorText.includes(replaceTarget)) {
+        setEditorText(editorText.replace(replaceTarget, userModifiedText));
+      } else if (editorText.includes(suggestion.originalSegment)) {
         setEditorText(editorText.replace(suggestion.originalSegment, userModifiedText));
       }
-      // if not found, still record the modify action without changing text
     }
 
     setSuggestionActions((prev) => ({ ...prev, [suggestion.id]: action }));
@@ -811,12 +841,15 @@ export function StudyWorkspace({
     const state = snapshot.session.currentState;
     return (
       state === "human_drafting" ||
-      state === "ai_revision" ||
       state === "independent_drafting" ||
       state === "final_edit" ||
       state === "post_condition_survey"
     );
   }, [snapshot]);
+
+  const allSuggestionsActioned =
+    suggestions.length > 0 &&
+    Object.values(suggestionActions).every((a) => a !== "pending");
 
   const currentQuestion = thoughtPartnerOutput?.reflectiveQuestions[activeQuestionIndex];
   const allQuestionsAnswered =
@@ -1025,6 +1058,13 @@ export function StudyWorkspace({
     );
   }
 
+  const categoryLabels: Record<string, string> = {
+    tone: "Tone",
+    specificity: "Specificity",
+    empathy: "Empathy",
+    closing_next_step: "Closing"
+  };
+
   const statusColors: Record<string, string> = {
     accept: "#16a34a",
     modify: "#d97706",
@@ -1093,17 +1133,39 @@ export function StudyWorkspace({
           </ul>
 
           <h3>Main Editor</h3>
-          {condition === "ghost_writer" && currentState === "bullet_input" ? (
+          {(condition === "ghost_writer" && currentState === "bullet_input") ||
+          (condition === "editor" && currentState === "ai_revision") ? (
             <div
-              title="Enter your bullet points in the AI panel first"
-              style={{ cursor: "not-allowed" }}
+              title={
+                condition === "editor"
+                  ? "Editor is locked — respond to each suggestion in the AI panel"
+                  : "Enter your bullet points in the AI panel first"
+              }
+              style={{ cursor: "not-allowed", position: "relative" }}
             >
               <textarea
                 value={editorText}
-                placeholder="The AI will generate a draft from your bullets..."
+                placeholder={condition === "editor" ? "" : "The AI will generate a draft from your bullets..."}
                 disabled
                 style={{ minHeight: "260px", pointerEvents: "none" }}
               />
+              <div style={{
+                position: "absolute", inset: 0,
+                background: "repeating-linear-gradient(135deg, rgba(209,213,219,0.45) 0px, rgba(209,213,219,0.45) 10px, transparent 10px, transparent 20px)",
+                borderRadius: "calc(var(--radius) - 0.25rem)",
+                pointerEvents: "none",
+              }} />
+              {condition === "editor" ? (
+                <div style={{
+                  position: "absolute", top: "50%", left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  background: "rgba(255,255,255,0.88)", padding: "0.4rem 0.9rem",
+                  borderRadius: 4, fontSize: "0.85em", color: "#374151",
+                  pointerEvents: "none", whiteSpace: "nowrap",
+                }}>
+                  Locked — respond to suggestions in the AI panel
+                </div>
+              ) : null}
             </div>
           ) : (
             <textarea
@@ -1178,8 +1240,10 @@ export function StudyWorkspace({
                   {bullets.map((value, index) => (
                     <label key={index}>
                       Bullet {index + 1}
-                      <input
+                      <textarea
                         value={value}
+                        rows={3}
+                        style={{ resize: "vertical" }}
                         onChange={(event) => {
                           const next = [...bullets];
                           next[index] = event.target.value;
@@ -1255,6 +1319,8 @@ export function StudyWorkspace({
 
                   {suggestions.map((suggestion) => {
                     const status = suggestionActions[suggestion.id] ?? "pending";
+                    const fullSentenceQuote = expandToFullSentence(editorText, suggestion.originalSegment);
+                    const isModifying = modifyingId === suggestion.id;
                     return (
                       <div
                         className="card"
@@ -1262,53 +1328,82 @@ export function StudyWorkspace({
                         style={{ borderLeft: `3px solid ${statusColors[status] ?? "#6b7280"}` }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem", flexWrap: "wrap", gap: "0.3rem" }}>
-                          <span className="tag">{suggestion.category}</span>
+                          <span className="tag">{categoryLabels[suggestion.category] ?? suggestion.category}</span>
                           <span className="tag" style={{ color: statusColors[status], borderColor: statusColors[status] }}>
                             {statusLabels[status] ?? status}
                           </span>
                         </div>
-                        <p><strong>Original:</strong> <em>{suggestion.originalSegment}</em></p>
+                        <p><strong>Original:</strong> <em>{fullSentenceQuote}</em></p>
                         <p style={{ marginTop: "0.3rem" }}><strong>Suggested:</strong> {suggestion.suggestedChange}</p>
                         <p style={{ marginTop: "0.3rem", color: "var(--muted-foreground)", fontSize: "0.88em" }}>
                           <strong>Why:</strong> {suggestion.reasonText}
                         </p>
-                        {currentState === "ai_revision" ? (
-                          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-                            <button
-                              type="button"
-                              disabled={status !== "pending"}
-                              title="Apply the suggested edit directly to the draft."
-                              onClick={() => void applySuggestion(suggestion, "accept")}
-                            >
-                              Accept
-                            </button>
-                            <button
-                              type="button"
-                              disabled={status !== "pending"}
-                              title="Edit the suggestion before applying it."
-                              onClick={() => void applySuggestion(suggestion, "modify")}
-                            >
-                              Modify
-                            </button>
-                            <button
-                              type="button"
-                              disabled={status !== "pending"}
-                              title="Keep your original wording for this suggestion."
-                              onClick={() => void applySuggestion(suggestion, "reject")}
-                            >
-                              Reject
-                            </button>
-                          </div>
+                        {currentState === "ai_revision" && status === "pending" ? (
+                          isModifying ? (
+                            <div style={{ marginTop: "0.5rem", display: "grid", gap: "0.4rem" }}>
+                              <textarea
+                                value={modifyText}
+                                rows={3}
+                                style={{ resize: "vertical" }}
+                                onChange={(e) => setModifyText(e.target.value)}
+                                placeholder="Edit the suggestion before applying…"
+                              />
+                              <div style={{ display: "flex", gap: "0.5rem" }}>
+                                <button
+                                  className="primary"
+                                  type="button"
+                                  disabled={!modifyText.trim()}
+                                  onClick={() => {
+                                    void applySuggestion(suggestion, "modify", modifyText);
+                                    setModifyingId(null);
+                                    setModifyText("");
+                                  }}
+                                >
+                                  Apply
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setModifyingId(null); setModifyText(""); }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                              <button
+                                type="button"
+                                title="Replace the original sentence with the suggested one."
+                                onClick={() => void applySuggestion(suggestion, "accept")}
+                              >
+                                Accept
+                              </button>
+                              <button
+                                type="button"
+                                title="Edit the suggestion before applying it."
+                                onClick={() => { setModifyingId(suggestion.id); setModifyText(suggestion.suggestedChange); }}
+                              >
+                                Modify
+                              </button>
+                              <button
+                                type="button"
+                                title="Keep your original wording."
+                                onClick={() => void applySuggestion(suggestion, "reject")}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          )
                         ) : null}
                       </div>
                     );
                   })}
 
-                  {currentState === "ai_revision" && suggestions.length > 0 ? (
+                  {currentState === "ai_revision" && allSuggestionsActioned ? (
                     <button
                       className="primary"
                       type="button"
-                      title="Moves from suggestion review to the final editing step."
+                      title="Applies all changes and unlocks the editor for final edits."
                       onClick={() => void toFinalEdit()}
                     >
                       Continue to Final Review
@@ -1327,8 +1422,10 @@ export function StudyWorkspace({
                   {bullets.map((value, index) => (
                     <label key={index}>
                       Situation Bullet {index + 1}
-                      <input
+                      <textarea
                         value={value}
+                        rows={3}
+                        style={{ resize: "vertical" }}
                         onChange={(event) => {
                           const next = [...bullets];
                           next[index] = event.target.value;

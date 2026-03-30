@@ -453,6 +453,13 @@ button:disabled {
   cursor: not-allowed;
 }
 
+textarea:disabled,
+input:disabled {
+  opacity: 0.35;
+  background: #d1d5db;
+  cursor: not-allowed;
+}
+
 input,
 textarea,
 select {
