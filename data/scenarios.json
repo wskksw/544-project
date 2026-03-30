@@ -1,22 +1,35 @@
 [
   {
-    "id": "scenario_1",
-    "title": "Requesting Deadline Flexibility",
-    "description": "You need to message a project teammate to request a one-day extension on your shared deliverable after an unexpected family obligation.",
+    "id": "scenario_a",
+    "title": "Apologizing After Missing a Housewarming",
+    "description": "You and Alex have been close friends since university. After graduating, you both stayed in the same city for a few years, grabbing dinner regularly and helping each other through job changes and tough stretches. A couple of months ago, Alex moved to a new city for work. It has been a big transition: they left behind most of their social circle and have mentioned feeling a bit isolated.\n\nLast week, Alex invited you to their housewarming party. It was their first real social event since the move, and they were clearly excited about it. They had been texting you about the playlist and what to cook. You told them you would definitely be there.\n\nOn the day of the party, Friday, you had an exhausting day at work. A project deadline got moved up and you ended up staying late. By the time you got home around 8 p.m., you were completely drained. You told yourself you would rest for a few minutes before heading out, but you never got up. Part of it was genuine exhaustion; part of it was that once the guilt of being late set in, it felt easier not to go at all. You also did not text Alex to let them know. You kept telling yourself you would message in a minute, and then it felt too late.\n\nIt is now Monday. Neither of you has reached out. You noticed Alex posted a few photos from the party on social media. It looked like a good turnout, but you cannot help wondering whether your absence was noticed. You want to reach out, but you are not sure how to explain what happened without it sounding like a weak excuse.\n\nWrite Alex a message.",
     "requiredElements": [
-      "Key fact: unexpected family obligation affected your timeline",
-      "Emotion/intent: respectful accountability and desire to keep trust",
-      "Request/next step: ask for a one-day extension and propose a concrete catch-up plan"
+      "Name the missed event clearly",
+      "Acknowledge the impact on Alex and the friendship",
+      "Explain the silence without sounding defensive",
+      "Include a concrete repair step"
     ]
   },
   {
-    "id": "scenario_2",
-    "title": "Addressing Group Chat Tension",
-    "description": "You need to message a friend after a tense group chat exchange where your comment came across as dismissive.",
+    "id": "scenario_b",
+    "title": "Expressing Gratitude While Asking a Difficult Favor",
+    "description": "You and Alex have been close friends since university. Over the years, they have been one of the people you trust most. A few months ago, you went through a rough period: a breakup happened around the same time as job uncertainty, and you were not doing very well. Alex checked in often, took late-night calls, and made a real effort to support you even after moving to a new city for work.\n\nYou have been meaning to thank Alex properly. At the same time, a new issue has come up. Next month, you have a two-day final-round job interview in Alex's city for a position that feels important to your future. Money is tight right now, and paying for a hotel would be difficult.\n\nThe problem is that Alex has also mentioned feeling overwhelmed lately. They are still settling into the new city, adjusting to work, and trying to make their apartment feel like home. You worry that asking whether you can stay with them for two nights, after they have already given you so much emotional support recently, might feel like too much.\n\nYou want to send a message that genuinely thanks Alex for how they have shown up for you, but also asks the favor honestly and respectfully, without sounding entitled or making the gratitude feel transactional.\n\nWrite Alex a message.",
     "requiredElements": [
-      "Key fact: your comment in the group chat sounded dismissive",
-      "Emotion/intent: acknowledge impact and repair the relationship",
-      "Request/next step: ask to talk and clarify expectations going forward"
+      "Express specific gratitude for Alex's recent support",
+      "Make the request clearly and respectfully",
+      "Show awareness that the ask may be inconvenient",
+      "Leave room for Alex to say no without pressure"
+    ]
+  },
+  {
+    "id": "scenario_c",
+    "title": "Expressing Honest Concern Without Damaging the Friendship",
+    "description": "You and Alex have been close friends since university. Even after Alex moved to a new city for work, you have stayed in close contact and still talk about big life decisions with each other. Since the move, Alex has mentioned feeling lonely and wanting life there to feel more settled.\n\nOver the last few months, Alex has been dating someone new. Recently, they texted you saying they have decided to sign a lease with this person next month. From Alex's messages, it sounds like things feel exciting and intense, but also fast.\n\nYou are conflicted. On one hand, you want to be supportive and avoid sounding judgmental. On the other, you are worried Alex may be rushing into a major decision at a vulnerable moment, partly because they have felt isolated and want stability quickly. You would regret saying nothing if the situation went badly, but you also do not want to come across as controlling or unsupportive.\n\nYou want to be honest about your concern while still making it clear that you care about Alex and respect that the decision is theirs.\n\nWrite Alex a message.",
+    "requiredElements": [
+      "Name the specific decision you are concerned about",
+      "Communicate care and respect, not judgment",
+      "Explain the concern concretely and gently",
+      "Invite a conversation rather than trying to control the outcome"
     ]
   }
 ]

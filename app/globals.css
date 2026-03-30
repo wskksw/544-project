@@ -36,9 +36,9 @@ a {
 }
 
 main {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 1.5rem;
+  padding: 1rem 0.5rem;
 }
 
 p {
@@ -62,8 +62,9 @@ ul {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 1rem;
+  align-items: start;
 }
 
 .matrix-grid {
@@ -240,6 +241,94 @@ ul {
   font-weight: 550;
 }
 
+.survey-question-label {
+  display: block;
+  margin-bottom: 0.45rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.survey-likert {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.survey-likert-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 0.42rem;
+}
+
+.survey-likert-option {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 0.28rem;
+  min-height: 78px;
+  padding: 0.52rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 0.1rem);
+  background: linear-gradient(180deg, #fff 0%, #f8fbff 100%);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.survey-likert-option:hover {
+  border-color: #b7c4d8;
+  box-shadow: 0 6px 16px rgb(17 24 39 / 0.06);
+  transform: translateY(-1px);
+}
+
+.survey-likert-option-selected {
+  border-color: var(--primary);
+  background: linear-gradient(180deg, #eef5ff 0%, #e1ecff 100%);
+  box-shadow: 0 0 0 2px rgb(31 111 235 / 0.14);
+}
+
+.survey-likert-option-disabled {
+  cursor: not-allowed;
+}
+
+.survey-likert-input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.survey-likert-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 999px;
+  border: 2px solid #51657d;
+  background: #fff;
+}
+
+.survey-likert-dot {
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.survey-likert-option-selected .survey-likert-marker {
+  border-color: var(--primary);
+}
+
+.survey-likert-option-selected .survey-likert-dot {
+  background: var(--primary);
+}
+
+.survey-likert-caption {
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.18;
+  max-width: 9ch;
+}
+
 .ui-badge {
   display: inline-flex;
   align-items: center;
@@ -391,5 +480,14 @@ td {
 
   .matrix-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .survey-likert-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  .survey-likert-option {
+    min-height: 94px;
+    padding: 0.58rem 0.38rem;
   }
 }

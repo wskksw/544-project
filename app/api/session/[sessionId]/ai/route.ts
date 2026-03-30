@@ -1,9 +1,9 @@
 import {
-  facilitatorOutputSchema,
-  generateDrafterDraft,
-  generateFacilitatorOutput,
-  generateRevisorSuggestions,
-  revisorSuggestionsSchema
+  editorSuggestionsSchema,
+  generateEditorSuggestions,
+  generateGhostWriterDraft,
+  generateThoughtPartnerOutput,
+  thoughtPartnerOutputSchema
 } from "@/lib/ai";
 import { db } from "@/lib/db";
 import { logEvent, nowIso } from "@/lib/logger";
@@ -15,28 +15,26 @@ import { z } from "zod";
 
 const bodySchema = z.object({
   action: z.enum([
-    "drafter_generate",
-    "revisor_suggest",
-    "facilitator_questions",
-    "facilitator_summary",
-    "facilitator_feedback"
+    "ghost_writer_generate",
+    "editor_suggest",
+    "thought_partner_questions",
+    "thought_partner_summary"
   ]),
   bullets: z.array(z.string()).optional(),
   message: z.string().optional(),
   reflections: z
     .array(z.object({ question: z.string().min(1), response: z.string().min(1) }))
-    .optional(),
-  draftMessage: z.string().optional()
+    .optional()
 });
 
 function expectedCondition(action: z.infer<typeof bodySchema>["action"]): RoleCondition {
-  if (action === "drafter_generate") {
-    return "drafter";
+  if (action === "ghost_writer_generate") {
+    return "ghost_writer";
   }
-  if (action === "revisor_suggest") {
-    return "revisor";
+  if (action === "editor_suggest") {
+    return "editor";
   }
-  return "facilitator";
+  return "thought_partner";
 }
 
 export async function POST(
@@ -58,13 +56,13 @@ export async function POST(
 
     const createdAt = nowIso();
 
-    if (body.action === "drafter_generate") {
+    if (body.action === "ghost_writer_generate") {
       const bullets = body.bullets?.map((item) => item.trim()).filter(Boolean) ?? [];
       if (bullets.length < 3 || bullets.length > 5) {
-        throw new Error("Drafter requires 3-5 bullets before generation.");
+        throw new Error("Ghost-writer requires 3-5 bullets before generation.");
       }
 
-      const ai = await generateDrafterDraft({ scenario, bullets });
+      const ai = await generateGhostWriterDraft({ scenario, bullets });
       const result = db
         .prepare(
           `
@@ -93,14 +91,14 @@ export async function POST(
       return NextResponse.json({ draft: ai.rawText, aiCallId: result.lastInsertRowid });
     }
 
-    if (body.action === "revisor_suggest") {
+    if (body.action === "editor_suggest") {
       const message = (body.message ?? "").trim();
       if (!message) {
-        throw new Error("Revisor requires a full human-written message.");
+        throw new Error("Editor requires a full human-written message.");
       }
 
-      const ai = await generateRevisorSuggestions({ scenario, message });
-      const parsed = revisorSuggestionsSchema.parse(ai.parsed);
+      const ai = await generateEditorSuggestions({ scenario, message });
+      const parsed = editorSuggestionsSchema.parse(ai.parsed);
 
       const result = db
         .prepare(
@@ -123,8 +121,8 @@ export async function POST(
       const aiCallId = Number(result.lastInsertRowid);
       const insertSuggestion = db.prepare(
         `
-        INSERT INTO revisor_suggestions (ai_call_id, segment_original, suggested_change, reason_tag, action_status)
-        VALUES (?, ?, ?, ?, 'pending')
+        INSERT INTO editor_suggestions (ai_call_id, segment_original, suggested_change, category, reason_text, action_status)
+        VALUES (?, ?, ?, ?, ?, 'pending')
         `
       );
 
@@ -132,7 +130,8 @@ export async function POST(
         id: number;
         originalSegment: string;
         suggestedChange: string;
-        reasonTag: "tone" | "clarity" | "empathy";
+        category: "tone" | "specificity" | "empathy" | "closing_next_step";
+        reasonText: string;
       }> = [];
 
       for (const suggestion of parsed.suggestions) {
@@ -140,13 +139,15 @@ export async function POST(
           aiCallId,
           suggestion.originalSegment,
           suggestion.suggestedChange,
-          suggestion.reasonTag
+          suggestion.category,
+          suggestion.reasonText
         );
         responseSuggestions.push({
           id: Number(insertResult.lastInsertRowid),
           originalSegment: suggestion.originalSegment,
           suggestedChange: suggestion.suggestedChange,
-          reasonTag: suggestion.reasonTag
+          category: suggestion.category,
+          reasonText: suggestion.reasonText
         });
       }
 
@@ -162,25 +163,17 @@ export async function POST(
 
     const bullets = body.bullets?.map((item) => item.trim()).filter(Boolean) ?? [];
     if (bullets.length < 3) {
-      throw new Error("Facilitator requires initial bullet input.");
+      throw new Error("Thought Partner requires initial bullet input.");
     }
 
-    const requestType =
-      body.action === "facilitator_questions"
-        ? "questions"
-        : body.action === "facilitator_summary"
-          ? "summary"
-          : "feedback";
-
-    const ai = await generateFacilitatorOutput({
+    const requestType = body.action === "thought_partner_questions" ? "questions" : "summary";
+    const ai = await generateThoughtPartnerOutput({
       scenario,
       bullets,
       reflections: body.reflections,
-      requestType,
-      draftMessage: body.draftMessage
+      requestType
     });
-
-    const parsed = facilitatorOutputSchema.parse(ai.parsed);
+    const parsed = thoughtPartnerOutputSchema.parse(ai.parsed);
 
     const result = db
       .prepare(
@@ -204,16 +197,14 @@ export async function POST(
         createdAt
       );
 
-    const aiCallId = Number(result.lastInsertRowid);
-
     logEvent({
       sessionId,
       trialIndex: trial.trial_index,
       eventType: "ai_call",
-      payload: { action: body.action, aiCallId }
+      payload: { action: body.action, aiCallId: result.lastInsertRowid }
     });
 
-    return NextResponse.json({ facilitator: parsed, aiCallId });
+    return NextResponse.json({ thoughtPartner: parsed, aiCallId: result.lastInsertRowid });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 400 });

@@ -9,8 +9,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export default function PlaygroundPage() {
-  const [condition, setCondition] = useState("drafter");
-  const [scenarioId, setScenarioId] = useState("scenario_1");
+  const [condition, setCondition] = useState("thought_partner");
+  const [scenarioId, setScenarioId] = useState("scenario_a");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -50,17 +50,18 @@ export default function PlaygroundPage() {
           <Label>
             Condition
             <Select value={condition} onChange={(event) => setCondition(event.target.value)}>
-              <option value="drafter">Drafter</option>
-              <option value="revisor">Revisor</option>
-              <option value="facilitator">Facilitator</option>
+              <option value="thought_partner">Thought Partner</option>
+              <option value="editor">Editor</option>
+              <option value="ghost_writer">Ghost-writer</option>
             </Select>
           </Label>
 
           <Label>
             Scenario
             <Select value={scenarioId} onChange={(event) => setScenarioId(event.target.value)}>
-              <option value="scenario_1">Scenario 1</option>
-              <option value="scenario_2">Scenario 2</option>
+              <option value="scenario_a">Scenario A</option>
+              <option value="scenario_b">Scenario B</option>
+              <option value="scenario_c">Scenario C</option>
             </Select>
           </Label>
 

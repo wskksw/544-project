@@ -5,9 +5,22 @@ import { z } from "zod";
 const bodySchema = z.object({
   surveyResponses: z.record(z.unknown()),
   finalMessageText: z.string(),
-  revisorActions: z.unknown().optional(),
-  facilitatorResponses: z
-    .array(z.object({ question: z.string().min(1), response: z.string().min(1) }))
+  thoughtPartnerResponses: z
+    .array(
+      z.object({
+        questionOrder: z.number().int().min(1),
+        question: z.string().min(1),
+        response: z.string().min(1)
+      })
+    )
+    .optional(),
+  interactionMetrics: z
+    .object({
+      keystrokeCount: z.number().int().min(0).optional(),
+      selfAuthoredTextRatio: z.number().min(0).max(1).nullable().optional(),
+      ghostWriterEditCount: z.number().int().min(0).nullable().optional(),
+      reflectionDurationSec: z.number().int().min(0).nullable().optional()
+    })
     .optional()
 });
 
@@ -23,8 +36,8 @@ export async function POST(
       sessionId,
       surveyResponses: parsed.surveyResponses,
       finalMessageText: parsed.finalMessageText,
-      revisorActions: parsed.revisorActions,
-      facilitatorResponses: parsed.facilitatorResponses
+      thoughtPartnerResponses: parsed.thoughtPartnerResponses,
+      interactionMetrics: parsed.interactionMetrics
     });
 
     return NextResponse.json(result);

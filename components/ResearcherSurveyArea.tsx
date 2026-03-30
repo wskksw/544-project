@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { visibleSurveyItems as filterVisibleSurveyItems } from "@/lib/surveyItems";
 import type { RoleCondition, SurveyItem, SurveyTemplate } from "@/lib/types";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 function blankItem(index: number): SurveyItem {
   return {
@@ -21,19 +22,53 @@ function blankItem(index: number): SurveyItem {
   };
 }
 
-function visibleSurveyItems(template: SurveyTemplate, condition?: RoleCondition): SurveyItem[] {
-  if (!condition) {
-    return template.items;
-  }
+function parseOptionList(raw: string): string[] {
+  return raw
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
-  return template.items.filter((item) => item.condition === "all" || item.condition === condition);
+function OptionListTextarea({ value, onChange, rows }: { value: string[]; onChange: (v: string[]) => void; rows?: number }) {
+  const [raw, setRaw] = useState(() => value.join("\n"));
+  const externalRef = useRef(value);
+
+  useEffect(() => {
+    if (externalRef.current !== value) {
+      externalRef.current = value;
+      setRaw(value.join("\n"));
+    }
+  }, [value]);
+
+  return (
+    <Textarea
+      value={raw}
+      rows={rows}
+      onChange={(e) => setRaw(e.target.value)}
+      onBlur={() => onChange(parseOptionList(raw))}
+    />
+  );
+}
+
+function defaultOptionsForType(type: SurveyItem["type"]): string[] | undefined {
+  if (type === "ranking") return ["first", "second", "third"];
+  if (type === "multiple_choice") return ["Option 1", "Option 2"];
+  return undefined;
+}
+
+function visibleSurveyItems(
+  template: SurveyTemplate,
+  answers: Record<string, SurveyValue> = {},
+  condition?: RoleCondition
+): SurveyItem[] {
+  return filterVisibleSurveyItems(template.items, answers, condition);
 }
 
 export function ResearcherSurveyArea() {
   const [templates, setTemplates] = useState<SurveyTemplate[] | null>(null);
   const [savingTemplates, setSavingTemplates] = useState(false);
   const [message, setMessage] = useState("");
-  const [previewCondition, setPreviewCondition] = useState<RoleCondition>("drafter");
+  const [previewCondition, setPreviewCondition] = useState<RoleCondition>("thought_partner");
   const [previewPerConditionAnswers, setPreviewPerConditionAnswers] = useState<Record<string, SurveyValue>>({});
   const [previewPostStudyAnswers, setPreviewPostStudyAnswers] = useState<Record<string, SurveyValue>>({});
 
@@ -76,6 +111,37 @@ export function ResearcherSurveyArea() {
     }
   }
 
+  async function resetTemplatesToDefaults(): Promise<void> {
+    const confirmed = window.confirm(
+      "Reset both survey templates to the code defaults? This will overwrite the saved templates in the database."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setSavingTemplates(true);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/researcher/surveys", {
+        method: "POST"
+      });
+
+      const json = (await response.json()) as { templates?: SurveyTemplate[]; error?: string };
+      if (!response.ok || !json.templates) {
+        throw new Error(json.error ?? "Failed to reset templates");
+      }
+
+      setTemplates(json.templates);
+      setMessage("Survey templates reset to defaults.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setSavingTemplates(false);
+    }
+  }
+
   function updateTemplate(
     templateId: SurveyTemplate["id"],
     updater: (template: SurveyTemplate) => SurveyTemplate
@@ -111,9 +177,14 @@ export function ResearcherSurveyArea() {
   const previewPerConditionItems = useMemo(
     () =>
       perConditionTemplate
-        ? visibleSurveyItems(perConditionTemplate, previewCondition)
+        ? visibleSurveyItems(perConditionTemplate, previewPerConditionAnswers, previewCondition)
         : [],
-    [perConditionTemplate, previewCondition]
+    [perConditionTemplate, previewCondition, previewPerConditionAnswers]
+  );
+
+  const previewPostStudyItems = useMemo(
+    () => (postStudyTemplate ? visibleSurveyItems(postStudyTemplate, previewPostStudyAnswers) : []),
+    [postStudyTemplate, previewPostStudyAnswers]
   );
 
   return (
@@ -211,16 +282,19 @@ export function ResearcherSurveyArea() {
                           Type
                           <Select
                             value={item.type}
-                            onChange={(event) =>
+                            onChange={(event) => {
+                              const newType = event.target.value as SurveyItem["type"];
                               updateItem(template.id, itemIndex, (current) => ({
                                 ...current,
-                                type: event.target.value as SurveyItem["type"]
-                              }))
-                            }
+                                type: newType,
+                                options: current.options ?? defaultOptionsForType(newType)
+                              }));
+                            }}
                           >
                             <option value="likert">likert</option>
                             <option value="open_text">open_text</option>
                             <option value="multiple_choice">multiple_choice</option>
+                            <option value="ranking">ranking</option>
                           </Select>
                         </Label>
 
@@ -236,9 +310,9 @@ export function ResearcherSurveyArea() {
                             }
                           >
                             <option value="all">all</option>
-                            <option value="drafter">drafter</option>
-                            <option value="revisor">revisor</option>
-                            <option value="facilitator">facilitator</option>
+                            <option value="thought_partner">thought_partner</option>
+                            <option value="editor">editor</option>
+                            <option value="ghost_writer">ghost_writer</option>
                           </Select>
                         </Label>
 
@@ -307,23 +381,35 @@ export function ResearcherSurveyArea() {
                               }
                             />
                           </Label>
+
+                          <Label style={{ gridColumn: "1 / -1" }}>
+                            Scale Labels (one per line)
+                            <OptionListTextarea
+                              value={item.scaleLabels ?? []}
+                              onChange={(next) =>
+                                updateItem(template.id, itemIndex, (current) => ({
+                                  ...current,
+                                  scaleLabels: next
+                                }))
+                              }
+                              rows={4}
+                            />
+                          </Label>
                         </div>
                       ) : null}
 
-                      {item.type === "multiple_choice" ? (
+                      {item.type === "multiple_choice" || item.type === "ranking" ? (
                         <Label>
-                          Options (comma separated)
-                          <Input
-                            value={(item.options ?? []).join(", ")}
-                            onChange={(event) =>
+                          Options (one per line)
+                          <OptionListTextarea
+                            value={item.options ?? []}
+                            onChange={(next) =>
                               updateItem(template.id, itemIndex, (current) => ({
                                 ...current,
-                                options: event.target.value
-                                  .split(",")
-                                  .map((option) => option.trim())
-                                  .filter(Boolean)
+                                options: next
                               }))
                             }
+                            rows={4}
                           />
                         </Label>
                       ) : null}
@@ -369,6 +455,9 @@ export function ResearcherSurveyArea() {
             <Button variant="outline" onClick={() => void loadTemplates()}>
               Reload Templates
             </Button>
+            <Button variant="destructive" disabled={savingTemplates} onClick={() => void resetTemplatesToDefaults()}>
+              Reset To Default Templates
+            </Button>
           </div>
 
           {message ? <p className="text-warning">{message}</p> : null}
@@ -397,9 +486,9 @@ export function ResearcherSurveyArea() {
                   value={previewCondition}
                   onChange={(event) => setPreviewCondition(event.target.value as RoleCondition)}
                 >
-                  <option value="drafter">Drafter</option>
-                  <option value="revisor">Revisor</option>
-                  <option value="facilitator">Facilitator</option>
+                  <option value="thought_partner">Thought Partner</option>
+                  <option value="editor">Editor</option>
+                  <option value="ghost_writer">Ghost-writer</option>
                 </Select>
               </Label>
 
@@ -430,7 +519,7 @@ export function ResearcherSurveyArea() {
 
             <CardContent className="stack-md">
               <div className="stack-md">
-                {(postStudyTemplate?.items ?? []).map((item) => (
+                {previewPostStudyItems.map((item) => (
                   <SurveyQuestionField
                     key={`preview_post_${item.id}`}
                     item={item}

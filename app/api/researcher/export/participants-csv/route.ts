@@ -11,8 +11,9 @@ export async function GET(): Promise<NextResponse> {
       participant_label: participant.participantLabel,
       access_code: participant.accessCode,
       cell_id: cell.cellId,
-      scenario_first: cell.scenarioFirst,
-      role_order: cell.conditionOrder.join(" -> "),
+      trial_sequence: cell.trialSpecs
+        .map((trial) => `${trial.condition}:${trial.scenarioId}`)
+        .join(" | "),
       session_id: participant.sessionId,
       session_status: participant.sessionStatus,
       current_state: participant.currentState,
@@ -27,8 +28,7 @@ export async function GET(): Promise<NextResponse> {
     "participant_label",
     "access_code",
     "cell_id",
-    "scenario_first",
-    "role_order",
+    "trial_sequence",
     "session_id",
     "session_status",
     "current_state",

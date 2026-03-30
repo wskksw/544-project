@@ -7,7 +7,7 @@ import { z } from "zod";
 const bodySchema = z.object({
   suggestionId: z.number().int().positive(),
   actionStatus: z.enum(["accept", "reject", "modify"]),
-  userModifiedText: z.string().optional()
+  userModifiedText: z.string().nullable().optional()
 });
 
 export async function POST(
@@ -17,13 +17,12 @@ export async function POST(
   try {
     const { sessionId } = await context.params;
     const parsed = bodySchema.parse(await request.json());
-
     const snapshot = getSessionSnapshot(sessionId);
 
     const result = db
       .prepare(
         `
-        UPDATE revisor_suggestions
+        UPDATE editor_suggestions
         SET action_status = ?, user_modified_text = ?
         WHERE id = ?
         `
@@ -37,7 +36,7 @@ export async function POST(
     logEvent({
       sessionId,
       trialIndex: snapshot.currentTrial.trial_index,
-      eventType: "revisor_suggestion_action",
+      eventType: "editor_suggestion_action",
       payload: parsed
     });
 

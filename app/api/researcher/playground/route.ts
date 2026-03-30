@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 const bodySchema = z.object({
-  condition: z.enum(["drafter", "revisor", "facilitator"]),
+  condition: z.enum(["thought_partner", "editor", "ghost_writer"]),
   scenarioId: z.string().min(1)
 });
 

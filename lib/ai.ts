@@ -2,28 +2,22 @@ import { STUDY_MODEL } from "@/lib/constants";
 import type { Scenario } from "@/lib/types";
 import { z } from "zod";
 
-export const revisorSuggestionsSchema = z.object({
+export const editorSuggestionsSchema = z.object({
   suggestions: z
     .array(
       z.object({
         originalSegment: z.string().min(1),
         suggestedChange: z.string().min(1),
-        reasonTag: z.enum(["tone", "clarity", "empathy"])
+        category: z.enum(["tone", "specificity", "empathy", "closing_next_step"]),
+        reasonText: z.string().min(1)
       })
     )
-    .min(1)
-    .max(12)
+    .length(4)
 });
 
-export const facilitatorOutputSchema = z.object({
-  reflectiveQuestions: z.array(z.string().min(1)).min(3).max(6),
-  summary: z.string().min(1),
-  inferredRecipientPerspective: z.string().min(1),
-  emotionalGoal: z.string().min(1),
-  thingsToAvoid: z.array(z.string().min(1)).min(1),
-  concreteNextStep: z.string().min(1),
-  reminderChecklist: z.array(z.string().min(1)).min(2),
-  highLevelFeedback: z.array(z.string().min(1)).max(6).optional()
+export const thoughtPartnerOutputSchema = z.object({
+  reflectiveQuestions: z.array(z.string().min(1)).length(4),
+  summary: z.string().min(1)
 });
 
 function safeJsonParse(raw: string): unknown {
@@ -48,7 +42,6 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<str
     },
     body: JSON.stringify({
       model: STUDY_MODEL,
-      temperature: 0.2,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
@@ -69,7 +62,6 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<str
   if (typeof firstContent === "string") {
     return firstContent;
   }
-
   if (Array.isArray(firstContent)) {
     return firstContent
       .map((item) => (typeof item === "object" && item && "text" in item ? item.text ?? "" : ""))
@@ -80,33 +72,39 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<str
   throw new Error("No response content from OpenAI.");
 }
 
-function mockDraftFromBullets(bullets: string[]): string {
-  return `Hi,\n\n${bullets
-    .map((bullet) => `- ${bullet.trim()}`)
-    .join("\n")}\n\nI wanted to share this clearly and respectfully. Let me know what you think.\n\nThanks.`;
+function mockGhostWriterDraft(bullets: string[]): string {
+  return [
+    "Hey Alex,",
+    "",
+    ...bullets.map((bullet) => `- ${bullet.trim()}`),
+    "",
+    "I care about our friendship and wanted to reach out honestly. Can we talk soon?"
+  ].join("\n");
 }
 
-export async function generateDrafterDraft(params: {
+export async function generateGhostWriterDraft(params: {
   scenario: Scenario;
   bullets: string[];
 }): Promise<{ rawText: string; systemPrompt: string; userPrompt: string }> {
   const systemPrompt = [
-    "You are AI Drafter for an interpersonal communication study.",
+    "You are AI Ghost-writer for an interpersonal communication study.",
     "Write one personal message using only the participant's bullet points.",
-    "Include required scenario elements, preserve relational sensitivity, and do not introduce new facts.",
-    "Return only the draft message, 90-150 words."
+    "Include the required scenario elements and preserve relational sensitivity.",
+    "Do not introduce new facts that are not reasonably implied by the participant bullets or scenario.",
+    "Return only the final draft message.",
+    "Target 100-150 words."
   ].join(" ");
 
   const userPrompt = [
     `Scenario: ${params.scenario.title}`,
     params.scenario.description,
     `Required elements: ${params.scenario.requiredElements.join(" | ")}`,
-    `Bullets: ${params.bullets.join(" | ")}`
-  ].join("\n");
+    `Participant bullets: ${params.bullets.join(" | ")}`
+  ].join("\n\n");
 
   if (!process.env.OPENAI_API_KEY) {
     return {
-      rawText: mockDraftFromBullets(params.bullets),
+      rawText: mockGhostWriterDraft(params.bullets),
       systemPrompt,
       userPrompt
     };
@@ -116,41 +114,63 @@ export async function generateDrafterDraft(params: {
   return { rawText, systemPrompt, userPrompt };
 }
 
-export async function generateRevisorSuggestions(params: {
+export async function generateEditorSuggestions(params: {
   scenario: Scenario;
   message: string;
 }): Promise<{
-  parsed: z.infer<typeof revisorSuggestionsSchema>;
+  parsed: z.infer<typeof editorSuggestionsSchema>;
   rawText: string;
   systemPrompt: string;
   userPrompt: string;
 }> {
   const systemPrompt = [
-    "You are AI Revisor for an interpersonal communication study.",
-    "Revise only tone, clarity, and empathy while preserving original intent.",
-    "Do not introduce new factual content.",
-    "Return JSON with this exact schema:",
-    '{"suggestions":[{"originalSegment":"...","suggestedChange":"...","reasonTag":"tone|clarity|empathy"}]}'
+    "You are AI Editor for an interpersonal communication study.",
+    "Return exactly four revision suggestions for the participant's message.",
+    "The four categories must be: tone, specificity, empathy, closing_next_step.",
+    "Revise wording only. Preserve the participant's underlying intent.",
+    "Do not introduce new factual claims beyond what is already in the draft or clearly implied by the scenario.",
+    "Return strict JSON with this exact schema:",
+    '{"suggestions":[{"originalSegment":"...","suggestedChange":"...","category":"tone|specificity|empathy|closing_next_step","reasonText":"..."}]}'
   ].join(" ");
 
   const userPrompt = [
     `Scenario: ${params.scenario.title}`,
     `Required elements: ${params.scenario.requiredElements.join(" | ")}`,
     `Draft message:\n${params.message}`
-  ].join("\n");
+  ].join("\n\n");
 
   if (!process.env.OPENAI_API_KEY) {
     const fallback = {
       suggestions: [
         {
-          originalSegment: params.message.slice(0, Math.min(80, params.message.length)) || "Draft opening",
-          suggestedChange: "Use a softer opening that acknowledges the other person's perspective.",
-          reasonTag: "empathy" as const
+          originalSegment: "I'm sorry I missed it.",
+          suggestedChange: "I'm really sorry I missed your housewarming.",
+          category: "tone" as const,
+          reasonText: "The revision sounds more sincere and direct."
+        },
+        {
+          originalSegment: "I had a long day.",
+          suggestedChange: "I got home late after an exhausting workday and handled it badly.",
+          category: "specificity" as const,
+          reasonText: "The revision explains the situation more concretely without sounding evasive."
+        },
+        {
+          originalSegment: "I know this wasn't great.",
+          suggestedChange: "I can imagine my silence and absence may have felt hurtful or disappointing.",
+          category: "empathy" as const,
+          reasonText: "The revision more clearly acknowledges the other person's likely feelings."
+        },
+        {
+          originalSegment: "Can we talk soon?",
+          suggestedChange: "If you're open to it, I'd really like to talk this week and try to make this right.",
+          category: "closing_next_step" as const,
+          reasonText: "The revision ends with a clearer, more actionable repair step."
         }
       ]
     };
+
     return {
-      parsed: revisorSuggestionsSchema.parse(fallback),
+      parsed: editorSuggestionsSchema.parse(fallback),
       rawText: JSON.stringify(fallback),
       systemPrompt,
       userPrompt
@@ -158,34 +178,42 @@ export async function generateRevisorSuggestions(params: {
   }
 
   const rawText = await callOpenAI(systemPrompt, userPrompt);
-  const parsedJson = safeJsonParse(rawText);
-  const parsed = revisorSuggestionsSchema.parse(parsedJson);
-
+  const parsed = editorSuggestionsSchema.parse(safeJsonParse(rawText));
   return { parsed, rawText, systemPrompt, userPrompt };
 }
 
-export async function generateFacilitatorOutput(params: {
+export async function generateThoughtPartnerOutput(params: {
   scenario: Scenario;
   bullets: string[];
   reflections?: Array<{ question: string; response: string }>;
-  requestType: "questions" | "summary" | "feedback";
-  draftMessage?: string;
+  requestType: "questions" | "summary";
 }): Promise<{
-  parsed: z.infer<typeof facilitatorOutputSchema>;
+  parsed: z.infer<typeof thoughtPartnerOutputSchema>;
   rawText: string;
   systemPrompt: string;
   userPrompt: string;
 }> {
-  const systemPrompt = [
-    "You are AI Facilitator for an interpersonal communication study.",
-    "Never produce sendable sentence-level or paragraph-level message text.",
-    "Allowed outputs: reflective questions, summaries, planning reminders, high-level feedback only.",
-    "Respond strictly as JSON with schema:",
-    '{"reflectiveQuestions":["..."],"summary":"...","inferredRecipientPerspective":"...","emotionalGoal":"...","thingsToAvoid":["..."],"concreteNextStep":"...","reminderChecklist":["..."],"highLevelFeedback":["..."]}'
-  ].join(" ");
+  const systemPrompt =
+    params.requestType === "questions"
+      ? [
+        "You are AI Thought Partner for an interpersonal communication study.",
+        "You may help the participant reflect, but you must not provide sendable message text.",
+        "Return exactly four structured reflection questions that help clarify feelings, intentions, recipient perspective, and a concrete next step.",
+        "Return strict JSON with this exact schema:",
+        '{"reflectiveQuestions":["...","...","...","..."],"summary":"..."}',
+        "For question generation, set summary to a short placeholder sentence."
+      ].join(" ")
+      : [
+        "You are AI Thought Partner for an interpersonal communication study.",
+        "You must not add advice, new content, or wording suggestions.",
+        "Write a short mirror-style summary that only reflects back the participant's stated reflections.",
+        "Return strict JSON with this exact schema:",
+        '{"reflectiveQuestions":["...","...","...","..."],"summary":"..."}',
+        "For summary generation, keep the reflectiveQuestions array identical to the original four questions provided by the user."
+      ].join(" ");
 
   const reflectionBlock = params.reflections?.length
-    ? params.reflections.map((item, idx) => `${idx + 1}. Q: ${item.question}\nA: ${item.response}`).join("\n")
+    ? params.reflections.map((item, index) => `${index + 1}. Q: ${item.question}\nA: ${item.response}`).join("\n")
     : "None";
 
   const userPrompt = [
@@ -194,38 +222,34 @@ export async function generateFacilitatorOutput(params: {
     `Required elements: ${params.scenario.requiredElements.join(" | ")}`,
     `Initial bullets: ${params.bullets.join(" | ")}`,
     `Request type: ${params.requestType}`,
-    `Reflections:\n${reflectionBlock}`,
-    params.draftMessage ? `Current user draft:\n${params.draftMessage}` : ""
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+    `Reflections:\n${reflectionBlock}`
+  ].join("\n\n");
 
   if (!process.env.OPENAI_API_KEY) {
-    const fallback = {
-      reflectiveQuestions: [
-        "What might the recipient be feeling right now?",
-        "What relationship outcome matters most to you after this message?",
-        "Which one concrete next step will make your intent clear?"
-      ],
-      summary: "You want to acknowledge impact, stay respectful, and propose a specific next step.",
-      inferredRecipientPerspective: "They may feel hurt or uncertain about your intent.",
-      emotionalGoal: "Repair trust while staying accountable.",
-      thingsToAvoid: ["Defensiveness", "Vague apologies without a next step"],
-      concreteNextStep: "Invite a short follow-up conversation and suggest a time.",
-      reminderChecklist: [
-        "Name the specific event clearly",
-        "Acknowledge impact",
-        "State intention for repair",
-        "Ask for a concrete follow-up"
-      ],
-      highLevelFeedback:
-        params.requestType === "feedback"
-          ? ["Keep the tone accountable and specific.", "Ensure the next step is explicit."]
-          : undefined
-    };
+    const fallback =
+      params.requestType === "questions"
+        ? {
+          reflectiveQuestions: [
+            "What do you most want Alex to understand about what happened?",
+            "What emotion do you think Alex may be feeling right now?",
+            "What do you hope Alex feels after reading your message?",
+            "What concrete next step would help repair the relationship?"
+          ],
+          summary: "You are reflecting on what happened and what you want Alex to understand."
+        }
+        : {
+          reflectiveQuestions: params.reflections?.map((item) => item.question).slice(0, 4) ?? [
+            "What do you most want Alex to understand about what happened?",
+            "What emotion do you think Alex may be feeling right now?",
+            "What do you hope Alex feels after reading your message?",
+            "What concrete next step would help repair the relationship?"
+          ],
+          summary:
+            "You want to be honest about what happened, acknowledge Alex's likely feelings, and reach out in a way that feels caring and accountable."
+        };
 
     return {
-      parsed: facilitatorOutputSchema.parse(fallback),
+      parsed: thoughtPartnerOutputSchema.parse(fallback),
       rawText: JSON.stringify(fallback),
       systemPrompt,
       userPrompt
@@ -233,8 +257,6 @@ export async function generateFacilitatorOutput(params: {
   }
 
   const rawText = await callOpenAI(systemPrompt, userPrompt);
-  const parsedJson = safeJsonParse(rawText);
-  const parsed = facilitatorOutputSchema.parse(parsedJson);
-
+  const parsed = thoughtPartnerOutputSchema.parse(safeJsonParse(rawText));
   return { parsed, rawText, systemPrompt, userPrompt };
 }

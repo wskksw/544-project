@@ -9,31 +9,34 @@ flowchart TD
     F -->|completed| Z[Completion screen + compensation code]
     F -->|active| G{Current state}
 
-    G -->|scenario_intro| H[Click Start When Ready timer starts]
+    G -->|practice_intro| P0[Begin practice]
+    P0 --> P1[practice_task no AI]
+    P1 --> P2[practice_survey]
+    P2 --> H
+
+    G -->|scenario_intro| H[Click Start When Ready]
     H --> I{Condition type}
 
-    I -->|drafter| D1[bullet_input 3-5 bullets]
-    D1 --> D2[POST /api/session/:id/ai drafter_generate]
-    D2 --> D3[final_edit]
+    I -->|ghost_writer| GW1[bullet_input 3-5 bullets]
+    GW1 --> GW2[POST /api/session/:id/ai ghost_writer_generate]
+    GW2 --> GW3[final_edit]
 
-    I -->|revisor| R1[human_drafting]
-    R1 --> R2[POST /api/session/:id/ai revisor_suggest]
-    R2 --> R3[POST /api/session/:id/revisor-action]
-    R3 --> R4[final_edit]
+    I -->|editor| E1[human_drafting]
+    E1 --> E2[POST /api/session/:id/ai editor_suggest]
+    E2 --> E3[POST /api/session/:id/editor-action]
+    E3 --> E4[final_edit]
 
-    I -->|facilitator| F1[bullet_input >=3 bullets]
-    F1 --> F2[POST /api/session/:id/ai facilitator_questions]
-    F2 --> F3[reflection_questions]
-    F3 --> F4[POST /api/session/:id/ai facilitator_summary]
-    F4 --> F5[independent_drafting]
-    F5 --> F6{Optional feedback}
-    F6 -->|Yes| F7[POST /api/session/:id/ai facilitator_feedback]
-    F6 -->|No| F8[Skip to final_edit]
-    F7 --> F8
+    I -->|thought_partner| TP1[bullet_input exactly 3 bullets]
+    TP1 --> TP2[POST /api/session/:id/ai thought_partner_questions]
+    TP2 --> TP3[reflection_questions]
+    TP3 --> TP4[POST /api/session/:id/ai thought_partner_summary]
+    TP4 --> TP5[reflection_summary]
+    TP5 --> TP6[independent_drafting]
+    TP6 --> TP7[final_edit]
 
-    D3 --> S1[post_condition_survey]
-    R4 --> S1
-    F8 --> S1
+    GW3 --> S1[post_condition_survey]
+    E4 --> S1
+    TP7 --> S1
 
     S1 --> S2[Submit condition survey]
     S2 --> S3[POST /api/session/:id/submit]

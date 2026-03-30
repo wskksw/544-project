@@ -1,11 +1,15 @@
 "use client";
 
 import { SurveyQuestionField, type SurveyValue } from "@/components/surveys/SurveyQuestionField";
+import { visibleSurveyItems as filterVisibleSurveyItems } from "@/lib/surveyItems";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type Condition = "drafter" | "revisor" | "facilitator";
+type Condition = "thought_partner" | "editor" | "ghost_writer";
 type StudyState =
+  | "practice_intro"
+  | "practice_task"
+  | "practice_survey"
   | "scenario_intro"
   | "bullet_input"
   | "human_drafting"
@@ -14,7 +18,6 @@ type StudyState =
   | "reflection_questions"
   | "reflection_summary"
   | "independent_drafting"
-  | "optional_feedback"
   | "final_edit"
   | "post_condition_survey"
   | "inter_condition_buffer"
@@ -23,12 +26,15 @@ type StudyState =
 type SurveyItem = {
   id: string;
   prompt: string;
-  type: "likert" | "open_text" | "multiple_choice";
+  type: "likert" | "open_text" | "multiple_choice" | "ranking";
   required: boolean;
   condition: Condition | "all";
   scaleMin?: number;
   scaleMax?: number;
+  scaleLabels?: string[];
   options?: string[];
+  dependsOnItemId?: string;
+  dependsOnValue?: string[];
 };
 
 type SurveyTemplate = {
@@ -37,6 +43,34 @@ type SurveyTemplate = {
   intro: string;
   items: SurveyItem[];
 };
+
+const PRACTICE_SURVEY_ITEMS: SurveyItem[] = [
+  {
+    id: "practice_ready",
+    prompt: "I understand how to use the study interface.",
+    type: "likert",
+    required: true,
+    condition: "all",
+    scaleMin: 1,
+    scaleMax: 7,
+    scaleLabels: [
+      "Strongly disagree",
+      "Disagree",
+      "Somewhat disagree",
+      "Neutral",
+      "Somewhat agree",
+      "Agree",
+      "Strongly agree"
+    ]
+  },
+  {
+    id: "practice_notes",
+    prompt: "Anything about the interface still feels confusing? (optional)",
+    type: "open_text",
+    required: false,
+    condition: "all"
+  }
+];
 
 type SessionPayload = {
   session: {
@@ -79,53 +113,82 @@ type Suggestion = {
   id: number;
   originalSegment: string;
   suggestedChange: string;
-  reasonTag: "tone" | "clarity" | "empathy";
+  category: "tone" | "specificity" | "empathy" | "closing_next_step";
+  reasonText: string;
 };
 
-type FacilitatorOutput = {
+type ThoughtPartnerOutput = {
   reflectiveQuestions: string[];
   summary: string;
-  inferredRecipientPerspective: string;
-  emotionalGoal: string;
-  thingsToAvoid: string[];
-  concreteNextStep: string;
-  reminderChecklist: string[];
-  highLevelFeedback?: string[];
 };
 
+function getConditionLabel(condition: Condition): string {
+  switch (condition) {
+    case "thought_partner":
+      return "Thought Partner";
+    case "editor":
+      return "Editor";
+    case "ghost_writer":
+      return "Ghost-writer";
+  }
+}
+
+function getScenarioLabel(scenarioId: string): string {
+  switch (scenarioId) {
+    case "scenario_a":
+      return "A";
+    case "scenario_b":
+      return "B";
+    case "scenario_c":
+      return "C";
+    default:
+      return scenarioId;
+  }
+}
+
 function getPromptText(condition: Condition, state: StudyState): string {
+  if (state === "practice_intro") {
+    return "Complete the short no-AI practice round before the actual study begins.";
+  }
+  if (state === "practice_task") {
+    return "Write a quick dummy reply so you can get used to the editor and buttons.";
+  }
+  if (state === "practice_survey") {
+    return "This practice feedback will not be included in the main 3-condition comparison.";
+  }
+
   const prompts: Record<Condition, Partial<Record<StudyState, string>>> = {
-    drafter: {
-      scenario_intro: "Read scenario context, then begin condition.",
-      bullet_input: "Enter 3-5 bullets before one-time draft generation.",
-      ai_generation: "Generate a single AI draft from provided bullets only.",
-      final_edit: "Edit the generated draft freely before survey."
+    ghost_writer: {
+      scenario_intro: "Read the scenario, then begin the Ghost-writer condition.",
+      bullet_input: "Enter 3-5 bullet points before one-time draft generation.",
+      ai_generation: "Generate a single Ghost-writer draft from the participant bullets only.",
+      final_edit: "Edit the generated draft freely, then continue to the survey."
     },
-    revisor: {
-      scenario_intro: "Read scenario context, then begin condition.",
-      human_drafting: "Write a full message without AI drafting help.",
-      ai_revision: "Review structured tone/clarity/empathy suggestions and accept/reject/modify.",
-      final_edit: "Finalize edits before survey."
+    editor: {
+      scenario_intro: "Read the scenario, then begin the Editor condition.",
+      human_drafting: "Write a full message yourself before requesting suggestions.",
+      ai_revision: "Review four suggestion cards and accept, reject, or modify them.",
+      final_edit: "Finalize the message, then continue to the survey."
     },
-    facilitator: {
-      scenario_intro: "Read scenario context, then begin condition.",
-      bullet_input: "Enter situation bullets for reflective facilitation.",
-      reflection_questions: "Answer facilitator reflection questions.",
-      reflection_summary: "Review planning summary and checklist.",
-      independent_drafting: "Write the final message independently.",
-      optional_feedback: "Review optional high-level feedback only.",
-      final_edit: "Finalize edits before survey."
+    thought_partner: {
+      scenario_intro: "Read the scenario, then begin the Thought Partner condition.",
+      bullet_input: "Enter 3 bullet points before starting reflective questions.",
+      reflection_questions: "Answer the four reflection questions one at a time.",
+      reflection_summary: "Review the mirror summary, then draft independently.",
+      independent_drafting: "Write the message independently. AI is no longer available.",
+      final_edit: "Finalize the message, then continue to the survey."
     }
   };
 
-  return prompts[condition][state] ?? "Follow state instructions in the interface.";
+  return prompts[condition][state] ?? "Follow the instructions shown in the interface.";
 }
 
-function visibleSurveyItems(template: SurveyTemplate, condition?: Condition): SurveyItem[] {
-  if (!condition) {
-    return template.items;
-  }
-  return template.items.filter((item) => item.condition === "all" || item.condition === condition);
+function visibleSurveyItems(
+  template: SurveyTemplate,
+  answers: Record<string, SurveyValue> = {},
+  condition?: Condition
+): SurveyItem[] {
+  return filterVisibleSurveyItems(template.items, answers, condition);
 }
 
 function missingRequiredItems(items: SurveyItem[], answers: Record<string, SurveyValue>): string[] {
@@ -139,9 +202,21 @@ function missingRequiredItems(items: SurveyItem[], answers: Record<string, Surve
       if (typeof value === "string") {
         return value.trim().length === 0;
       }
-      return false;
+      if (typeof value === "number") {
+        return Number.isNaN(value);
+      }
+      if (Array.isArray(value)) {
+        const filtered = value.filter((entry) => entry.trim().length > 0);
+        return filtered.length !== (item.options?.length ?? 0) || new Set(filtered).size !== filtered.length;
+      }
+      return true;
     })
     .map((item) => item.prompt);
+}
+
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
 }
 
 export function StudyWorkspace({
@@ -165,17 +240,24 @@ export function StudyWorkspace({
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [suggestionActions, setSuggestionActions] = useState<Record<number, string>>({});
 
-  const [facilitatorOutput, setFacilitatorOutput] = useState<FacilitatorOutput | null>(null);
+  const [thoughtPartnerOutput, setThoughtPartnerOutput] = useState<ThoughtPartnerOutput | null>(null);
   const [questionAnswers, setQuestionAnswers] = useState<Record<number, string>>({});
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
 
   const [conditionSurveyAnswers, setConditionSurveyAnswers] = useState<Record<string, SurveyValue>>({});
   const [postStudyAnswers, setPostStudyAnswers] = useState<Record<string, SurveyValue>>({});
+  const [practiceText, setPracticeText] = useState("");
+  const [practiceSurveyAnswers, setPracticeSurveyAnswers] = useState<Record<string, SurveyValue>>({});
+
+  const [keystrokeCount, setKeystrokeCount] = useState(0);
+  const [ghostWriterEditCount, setGhostWriterEditCount] = useState(0);
+  const [reflectionStartedAt, setReflectionStartedAt] = useState<number | null>(null);
+  const [reflectionDurationSec, setReflectionDurationSec] = useState<number | null>(null);
 
   const seenPromptKeys = useRef<Set<string>>(new Set());
+  const surveyRef = useRef<HTMLElement>(null);
   const [clock, setClock] = useState(Date.now());
-  const trialIdentity = snapshot
-    ? `${snapshot.session.id}:${snapshot.currentTrial.trial_index}`
-    : "uninitialized";
+  const trialIdentity = snapshot ? `${snapshot.session.id}:${snapshot.currentTrial.trial_index}` : "uninitialized";
 
   const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
     const response = await fetch(url, init);
@@ -208,7 +290,12 @@ export function StudyWorkspace({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          trialIndex: snapshot.currentTrial.trial_index,
+          trialIndex:
+            snapshot.session.currentState === "practice_intro" ||
+            snapshot.session.currentState === "practice_task" ||
+            snapshot.session.currentState === "practice_survey"
+              ? null
+              : snapshot.currentTrial.trial_index,
           eventType,
           payload
         })
@@ -236,9 +323,16 @@ export function StudyWorkspace({
     setHasGeneratedDraft(false);
     setSuggestions([]);
     setSuggestionActions({});
-    setFacilitatorOutput(null);
+    setThoughtPartnerOutput(null);
     setQuestionAnswers({});
+    setActiveQuestionIndex(0);
     setConditionSurveyAnswers({});
+    setPracticeText("");
+    setPracticeSurveyAnswers({});
+    setKeystrokeCount(0);
+    setGhostWriterEditCount(0);
+    setReflectionStartedAt(null);
+    setReflectionDurationSec(null);
     seenPromptKeys.current.clear();
   }, [trialIdentity]);
 
@@ -287,6 +381,15 @@ export function StudyWorkspace({
   }, [editorText, logEvent, snapshot]);
 
   useEffect(() => {
+    if (snapshot?.session.currentState === "post_condition_survey") {
+      const timer = window.setTimeout(() => {
+        surveyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 150);
+      return () => window.clearTimeout(timer);
+    }
+  }, [snapshot?.session.currentState]);
+
+  useEffect(() => {
     if (!snapshot || snapshot.session.currentState === "post_study_survey") {
       return;
     }
@@ -297,45 +400,30 @@ export function StudyWorkspace({
       const elapsedSec = startedAt
         ? Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000))
         : 0;
-      void logEvent("timer_heartbeat", {
-        elapsedSec,
-        state
-      });
+      void logEvent("timer_heartbeat", { elapsedSec, state });
     }, 30000);
 
     return () => window.clearInterval(handle);
-  }, [
-    logEvent,
-    snapshot,
-    snapshot?.session.id,
-    snapshot?.currentTrial.trial_index,
-    snapshot?.session.currentState,
-    snapshot?.currentTrial.started_at
-  ]);
+  }, [logEvent, snapshot, snapshot?.session.currentState, snapshot?.currentTrial.started_at]);
 
   const elapsedSeconds = useMemo(() => {
     if (!snapshot?.currentTrial.started_at) {
       return 0;
     }
-    return Math.max(
-      0,
-      Math.floor((clock - new Date(snapshot.currentTrial.started_at).getTime()) / 1000)
-    );
+    return Math.max(0, Math.floor((clock - new Date(snapshot.currentTrial.started_at).getTime()) / 1000));
   }, [clock, snapshot]);
 
-  const conditionLabel = snapshot?.currentTrial.condition.toUpperCase();
+  const wordCount = useMemo(() => countWords(editorText), [editorText]);
 
   async function startConditionFlow(): Promise<void> {
     if (!snapshot) {
       return;
     }
-    const toState = snapshot.currentTrial.condition === "revisor" ? "human_drafting" : "bullet_input";
+    const toState = snapshot.currentTrial.condition === "editor" ? "human_drafting" : "bullet_input";
     setBusy(true);
     setError("");
     try {
-      await fetchJson(`/api/session/${sessionId}/start-trial`, {
-        method: "POST"
-      });
+      await fetchJson(`/api/session/${sessionId}/start-trial`, { method: "POST" });
       await transition(toState);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start condition");
@@ -344,13 +432,98 @@ export function StudyWorkspace({
     }
   }
 
-  async function runDrafterGenerate(): Promise<void> {
+  async function startPracticeTask(): Promise<void> {
+    setBusy(true);
+    setError("");
+    try {
+      await transition("practice_task");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to open practice task");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function continueToPracticeSurvey(): Promise<void> {
+    if (!practiceText.trim()) {
+      setError("Write a short practice reply before continuing.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    try {
+      await transition("practice_survey");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to open practice survey");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitPracticeRound(): Promise<void> {
+    const missing = missingRequiredItems(PRACTICE_SURVEY_ITEMS, practiceSurveyAnswers);
+    if (missing.length > 0) {
+      setError("Please complete the required practice survey item.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    try {
+      await fetchJson(`/api/session/${sessionId}/practice-submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          practiceMessageText: practiceText,
+          surveyResponses: practiceSurveyAnswers
+        })
+      });
+      setPracticeText("");
+      setPracticeSurveyAnswers({});
+      setEditorText("");
+      setBullets(["", "", ""]);
+      setKeystrokeCount(0);
+      setGhostWriterEditCount(0);
+      setReflectionStartedAt(null);
+      setReflectionDurationSec(null);
+      setSuggestions([]);
+      setSuggestionActions({});
+      setThoughtPartnerOutput(null);
+      setQuestionAnswers({});
+      setActiveQuestionIndex(0);
+      setConditionSurveyAnswers({});
+      await loadSnapshot();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to submit practice round");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function reflectionPairs(): Array<{ questionOrder: number; question: string; response: string }> {
+    const questions = thoughtPartnerOutput?.reflectiveQuestions ?? [];
+    return questions.map((question, index) => ({
+      questionOrder: index + 1,
+      question,
+      response: questionAnswers[index] ?? ""
+    }));
+  }
+
+  function handleEditorChange(nextText: string): void {
+    setEditorText(nextText);
+    if (snapshot?.currentTrial.condition === "ghost_writer" && hasGeneratedDraft) {
+      setGhostWriterEditCount((prev) => prev + 1);
+    }
+  }
+
+  async function runGhostWriterGenerate(): Promise<void> {
     if (!snapshot) {
       return;
     }
     const compactBullets = bullets.map((item) => item.trim()).filter(Boolean);
     if (compactBullets.length < 3 || compactBullets.length > 5) {
-      setError("Drafter requires 3-5 bullet points.");
+      setError("Ghost-writer requires 3-5 bullet points.");
       return;
     }
 
@@ -361,24 +534,24 @@ export function StudyWorkspace({
       const json = await fetchJson<{ draft: string }>(`/api/session/${sessionId}/ai`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "drafter_generate", bullets: compactBullets })
+        body: JSON.stringify({ action: "ghost_writer_generate", bullets: compactBullets })
       });
       setEditorText(json.draft);
       setHasGeneratedDraft(true);
       await transition("final_edit", { generated: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Draft generation failed");
+      setError(err instanceof Error ? err.message : "Ghost-writer generation failed");
     } finally {
       setBusy(false);
     }
   }
 
-  async function runRevisorSuggestions(): Promise<void> {
+  async function runEditorSuggestions(): Promise<void> {
     if (!snapshot) {
       return;
     }
     if (!editorText.trim()) {
-      setError("Write a full message before requesting revision suggestions.");
+      setError("Write a full message before requesting suggestions.");
       return;
     }
 
@@ -389,7 +562,7 @@ export function StudyWorkspace({
       const json = await fetchJson<{ suggestions: Suggestion[] }>(`/api/session/${sessionId}/ai`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "revisor_suggest", message: editorText })
+        body: JSON.stringify({ action: "editor_suggest", message: editorText })
       });
 
       setSuggestions(json.suggestions);
@@ -406,48 +579,45 @@ export function StudyWorkspace({
   }
 
   async function applySuggestion(suggestion: Suggestion, action: "accept" | "reject" | "modify"): Promise<void> {
-    let nextText = editorText;
     let userModifiedText: string | null = null;
 
     if (action === "accept") {
       if (editorText.includes(suggestion.originalSegment)) {
-        nextText = editorText.replace(suggestion.originalSegment, suggestion.suggestedChange);
-      } else {
-        nextText = `${editorText}\n\n[Applied revision]\n${suggestion.suggestedChange}`;
+        setEditorText(editorText.replace(suggestion.originalSegment, suggestion.suggestedChange));
       }
-      setEditorText(nextText);
+      // if originalSegment not found in current text, don't modify (user may have already edited that section)
     }
 
     if (action === "modify") {
-      userModifiedText =
-        window.prompt("Enter your modified version of this suggestion:", suggestion.suggestedChange) ?? "";
+      userModifiedText = window.prompt("Enter your modified version of this suggestion:", suggestion.suggestedChange) ?? "";
       if (!userModifiedText.trim()) {
         return;
       }
       if (editorText.includes(suggestion.originalSegment)) {
-        nextText = editorText.replace(suggestion.originalSegment, userModifiedText);
-      } else {
-        nextText = `${editorText}\n\n[Modified revision]\n${userModifiedText}`;
+        setEditorText(editorText.replace(suggestion.originalSegment, userModifiedText));
       }
-      setEditorText(nextText);
+      // if not found, still record the modify action without changing text
     }
 
     setSuggestionActions((prev) => ({ ...prev, [suggestion.id]: action }));
-    await fetchJson(`/api/session/${sessionId}/revisor-action`, {
+    const fetchBody: Record<string, unknown> = {
+      suggestionId: suggestion.id,
+      actionStatus: action
+    };
+    if (userModifiedText !== null) {
+      fetchBody.userModifiedText = userModifiedText;
+    }
+    await fetchJson(`/api/session/${sessionId}/editor-action`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        suggestionId: suggestion.id,
-        actionStatus: action,
-        userModifiedText
-      })
+      body: JSON.stringify(fetchBody)
     });
   }
 
-  async function startFacilitatorQuestions(): Promise<void> {
+  async function startThoughtPartnerQuestions(): Promise<void> {
     const compactBullets = bullets.map((item) => item.trim()).filter(Boolean);
-    if (compactBullets.length < 3) {
-      setError("Facilitator requires at least 3 bullet points.");
+    if (compactBullets.length !== 3) {
+      setError("Thought Partner requires exactly 3 bullet points.");
       return;
     }
 
@@ -455,34 +625,36 @@ export function StudyWorkspace({
     setError("");
     try {
       await transition("reflection_questions", { bulletCount: compactBullets.length });
-      const json = await fetchJson<{ facilitator: FacilitatorOutput }>(`/api/session/${sessionId}/ai`, {
+      const json = await fetchJson<{ thoughtPartner: ThoughtPartnerOutput }>(`/api/session/${sessionId}/ai`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "facilitator_questions",
-          bullets: compactBullets
-        })
+        body: JSON.stringify({ action: "thought_partner_questions", bullets: compactBullets })
       });
-      setFacilitatorOutput(json.facilitator);
+      setThoughtPartnerOutput(json.thoughtPartner);
+      setActiveQuestionIndex(0);
+      setReflectionStartedAt(Date.now());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to ask reflection questions");
+      setError(err instanceof Error ? err.message : "Failed to start reflective questions");
     } finally {
       setBusy(false);
     }
   }
 
-  function reflectionPairs(): Array<{ question: string; response: string }> {
-    const questions = facilitatorOutput?.reflectiveQuestions ?? [];
-    return questions
-      .map((question, idx) => ({ question, response: questionAnswers[idx] ?? "" }))
-      .filter((pair) => pair.response.trim().length > 0);
+  function continueQuestionFlow(): void {
+    const answer = (questionAnswers[activeQuestionIndex] ?? "").trim();
+    if (!answer) {
+      setError("Please answer the current reflection question before continuing.");
+      return;
+    }
+    setError("");
+    setActiveQuestionIndex((prev) => Math.min(prev + 1, (thoughtPartnerOutput?.reflectiveQuestions.length ?? 1) - 1));
   }
 
   async function summarizeReflections(): Promise<void> {
     const compactBullets = bullets.map((item) => item.trim()).filter(Boolean);
-    const reflections = reflectionPairs();
-    if (!reflections.length) {
-      setError("Answer at least one reflection question before summary.");
+    const reflections = reflectionPairs().filter((pair) => pair.response.trim().length > 0);
+    if (reflections.length !== 4) {
+      setError("All four reflection questions must be answered before generating the summary.");
       return;
     }
 
@@ -490,16 +662,19 @@ export function StudyWorkspace({
     setError("");
     try {
       await transition("reflection_summary", { reflectionCount: reflections.length });
-      const json = await fetchJson<{ facilitator: FacilitatorOutput }>(`/api/session/${sessionId}/ai`, {
+      const json = await fetchJson<{ thoughtPartner: ThoughtPartnerOutput }>(`/api/session/${sessionId}/ai`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "facilitator_summary",
+          action: "thought_partner_summary",
           bullets: compactBullets,
-          reflections
+          reflections: reflections.map(({ question, response }) => ({ question, response }))
         })
       });
-      setFacilitatorOutput(json.facilitator);
+      setThoughtPartnerOutput(json.thoughtPartner);
+      if (reflectionStartedAt) {
+        setReflectionDurationSec(Math.max(0, Math.floor((Date.now() - reflectionStartedAt) / 1000)));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to summarize reflections");
     } finally {
@@ -507,25 +682,13 @@ export function StudyWorkspace({
     }
   }
 
-  async function requestOptionalFeedback(): Promise<void> {
-    const compactBullets = bullets.map((item) => item.trim()).filter(Boolean);
+  async function toIndependentDrafting(): Promise<void> {
     setBusy(true);
     setError("");
     try {
-      await transition("optional_feedback");
-      const json = await fetchJson<{ facilitator: FacilitatorOutput }>(`/api/session/${sessionId}/ai`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "facilitator_feedback",
-          bullets: compactBullets,
-          reflections: reflectionPairs(),
-          draftMessage: editorText
-        })
-      });
-      setFacilitatorOutput(json.facilitator);
+      await transition("independent_drafting");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to get optional feedback");
+      setError(err instanceof Error ? err.message : "Failed to open independent drafting");
     } finally {
       setBusy(false);
     }
@@ -560,7 +723,11 @@ export function StudyWorkspace({
       return;
     }
 
-    const surveyItems = visibleSurveyItems(snapshot.conditionSurveyTemplate, snapshot.currentTrial.condition);
+    const surveyItems = visibleSurveyItems(
+      snapshot.conditionSurveyTemplate,
+      conditionSurveyAnswers,
+      snapshot.currentTrial.condition
+    );
     const missing = missingRequiredItems(surveyItems, conditionSurveyAnswers);
     if (missing.length > 0) {
       setError("Please complete all required post-condition survey fields.");
@@ -572,6 +739,14 @@ export function StudyWorkspace({
       surveyResponses[item.id] = conditionSurveyAnswers[item.id] ?? null;
     }
 
+    const finalLength = editorText.trim().length;
+    const interactionMetrics = {
+      keystrokeCount,
+      selfAuthoredTextRatio: finalLength > 0 ? Math.min(1, keystrokeCount / finalLength) : null,
+      ghostWriterEditCount: snapshot.currentTrial.condition === "ghost_writer" ? ghostWriterEditCount : null,
+      reflectionDurationSec: snapshot.currentTrial.condition === "thought_partner" ? reflectionDurationSec : null
+    };
+
     setBusy(true);
     setError("");
     try {
@@ -581,8 +756,11 @@ export function StudyWorkspace({
         body: JSON.stringify({
           surveyResponses,
           finalMessageText: editorText,
-          revisorActions: suggestionActions,
-          facilitatorResponses: reflectionPairs()
+          thoughtPartnerResponses:
+            snapshot.currentTrial.condition === "thought_partner"
+              ? reflectionPairs().filter((pair) => pair.response.trim().length > 0)
+              : undefined,
+          interactionMetrics
         })
       });
       await loadSnapshot();
@@ -598,7 +776,7 @@ export function StudyWorkspace({
       return;
     }
 
-    const surveyItems = visibleSurveyItems(snapshot.postStudySurveyTemplate);
+    const surveyItems = visibleSurveyItems(snapshot.postStudySurveyTemplate, postStudyAnswers);
     const missing = missingRequiredItems(surveyItems, postStudyAnswers);
     if (missing.length > 0) {
       setError("Please complete all required final survey fields.");
@@ -631,19 +809,18 @@ export function StudyWorkspace({
       return false;
     }
     const state = snapshot.session.currentState;
-    if (
+    return (
       state === "human_drafting" ||
       state === "ai_revision" ||
+      state === "independent_drafting" ||
       state === "final_edit" ||
       state === "post_condition_survey"
-    ) {
-      return true;
-    }
-    if (state === "independent_drafting" || state === "optional_feedback") {
-      return true;
-    }
-    return false;
+    );
   }, [snapshot]);
+
+  const currentQuestion = thoughtPartnerOutput?.reflectiveQuestions[activeQuestionIndex];
+  const allQuestionsAnswered =
+    thoughtPartnerOutput?.reflectiveQuestions.every((_, index) => (questionAnswers[index] ?? "").trim().length > 0) ?? false;
 
   if (loading) {
     return <div className="card">Loading session...</div>;
@@ -696,15 +873,13 @@ export function StudyWorkspace({
   const condition = snapshot.currentTrial.condition;
 
   if (currentState === "post_study_survey") {
-    const finalItems = visibleSurveyItems(snapshot.postStudySurveyTemplate);
+    const finalItems = visibleSurveyItems(snapshot.postStudySurveyTemplate, postStudyAnswers);
 
     return (
       <div className="card" style={{ maxWidth: 860, margin: "0 auto" }}>
         <h1>{snapshot.postStudySurveyTemplate.title}</h1>
-        <p style={{ color: "var(--muted)" }}>{snapshot.postStudySurveyTemplate.intro}</p>
-        <p style={{ color: "var(--muted)" }}>
-          All condition blocks are complete. Submit this final survey to finish the study.
-        </p>
+        <p style={{ color: "black" }}>{snapshot.postStudySurveyTemplate.intro}</p>
+        <p style={{ color: "black" }}>All condition blocks are complete. Submit this final survey to finish the study.</p>
 
         <div style={{ display: "grid", gap: "0.8rem" }}>
           {finalItems.map((item) => (
@@ -729,11 +904,144 @@ export function StudyWorkspace({
     );
   }
 
-  const conditionSurveyItems = visibleSurveyItems(snapshot.conditionSurveyTemplate, condition);
+  const conditionSurveyItems = visibleSurveyItems(snapshot.conditionSurveyTemplate, conditionSurveyAnswers, condition);
+
+  if (currentState === "practice_intro" || currentState === "practice_task" || currentState === "practice_survey") {
+    return (
+      <div className="layout-grid">
+        <section className="card">
+          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+            <div>
+              {portalMode === "participant" ? (
+                <>
+                  <strong>Access Code:</strong> {participantAccessCode ?? snapshot.session.accessCode}
+                </>
+              ) : (
+                <>
+                  <strong>Session:</strong> {snapshot.session.id.slice(0, 8)} | <strong>Participant:</strong>{" "}
+                  {snapshot.session.participantLabel} ({snapshot.session.accessCode})
+                </>
+              )}
+            </div>
+            <div>
+              <span className="tag" title="This short onboarding round is not part of the 3-condition comparison.">
+                Practice Round
+              </span>{" "}
+              {portalMode === "researcher" ? <span className="tag">State: {currentState}</span> : null}
+            </div>
+          </div>
+        </section>
+
+        <section className="card" style={{ maxWidth: 860, margin: "0 auto" }}>
+          {currentState === "practice_intro" ? (
+            <div style={{ display: "grid", gap: "0.9rem" }}>
+              <h1 title="This round is only for learning the interface.">Practice Round</h1>
+              <p style={{ color: "black" }}>
+                Before the real study begins, complete this very short no-AI practice round so the first experimental condition is not slowed down by interface learning.
+              </p>
+              <p style={{ color: "black" }}>
+                The practice task is not part of the main analysis. It should take about two minutes.
+              </p>
+              <button
+                className="primary"
+                type="button"
+                disabled={busy}
+                title="Opens a simple dummy writing task with no AI support."
+                onClick={() => void startPracticeTask()}
+              >
+                Start Practice
+              </button>
+            </div>
+          ) : null}
+
+          {currentState === "practice_task" ? (
+            <div style={{ display: "grid", gap: "0.9rem" }}>
+              <h1 title="This is a neutral warm-up prompt.">Practice Task</h1>
+              <p style={{ color: "black", whiteSpace: "pre-wrap" }}>
+                A friend texts you: &quot;Movie night starts at 7. Do you want me to bring chips or cookies?&quot; Write a short reply.
+              </p>
+              <p style={{ color: "black" }}>
+                Keep it simple. This is just to get used to the editor and submit flow.
+              </p>
+              <textarea
+                value={practiceText}
+                onChange={(event) => setPracticeText(event.target.value)}
+                placeholder="Write a short practice reply here..."
+                disabled={busy}
+                style={{ minHeight: "180px" }}
+                title="This practice editor is separate from the real study blocks."
+              />
+              <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+                <span className="tag" title="Practice word count is not used in the experimental timing analysis.">
+                  Word Count: {countWords(practiceText)}
+                </span>
+              </div>
+              <button
+                className="primary"
+                type="button"
+                disabled={busy}
+                title="Moves to the short practice feedback survey."
+                onClick={() => void continueToPracticeSurvey()}
+              >
+                Continue to Practice Survey
+              </button>
+            </div>
+          ) : null}
+
+          {currentState === "practice_survey" ? (
+            <div style={{ display: "grid", gap: "0.9rem" }}>
+              <h1 title="This quick survey checks whether the interface feels clear before the real study starts.">
+                Practice Survey
+              </h1>
+              <p style={{ color: "black" }}>
+                This short feedback round helps confirm participants are comfortable with the interface before the timed study conditions begin.
+              </p>
+              <div style={{ display: "grid", gap: "0.8rem" }}>
+                {PRACTICE_SURVEY_ITEMS.map((item) => (
+                  <SurveyQuestionField
+                    key={item.id}
+                    item={item}
+                    value={practiceSurveyAnswers[item.id]}
+                    disabled={busy}
+                    onChange={(next) => setPracticeSurveyAnswers((prev) => ({ ...prev, [item.id]: next }))}
+                  />
+                ))}
+              </div>
+              <button
+                className="primary"
+                type="button"
+                disabled={busy}
+                title="Completes practice and opens the first experimental block."
+                onClick={() => void submitPracticeRound()}
+              >
+                Begin Study
+              </button>
+            </div>
+          ) : null}
+
+          {error ? <p style={{ color: "var(--warn)" }}>{error}</p> : null}
+        </section>
+      </div>
+    );
+  }
+
+  const statusColors: Record<string, string> = {
+    accept: "#16a34a",
+    modify: "#d97706",
+    reject: "#dc2626",
+    pending: "#6b7280"
+  };
+  const statusLabels: Record<string, string> = {
+    accept: "Accepted",
+    modify: "Accepted w/ Change",
+    reject: "Rejected",
+    pending: "Not responded"
+  };
 
   return (
     <div className="layout-grid">
-      <section className="card">
+      {/* Status bar */}
+      <section className="card" style={{ padding: "0.6rem 1rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
           <div>
             {portalMode === "participant" ? (
@@ -748,30 +1056,35 @@ export function StudyWorkspace({
             )}
           </div>
           <div>
-            <span className="tag">Block {snapshot.currentTrial.order_position} of {snapshot.allTrials.length}</span>{" "}
-            {portalMode === "researcher" ? <span className="tag">Condition: {conditionLabel}</span> : null}{" "}
-            <span className="tag">Scenario: {snapshot.currentTrial.scenario_id === "scenario_1" ? "1" : "2"}</span>{" "}
+            <span className="tag" title="Only the 3 experimental blocks count toward the main comparison.">
+              Block {snapshot.currentTrial.order_position} of {snapshot.allTrials.length}
+            </span>{" "}
+            <span className="tag">Condition: {getConditionLabel(condition)}</span>{" "}
+            <span className="tag">Scenario: {getScenarioLabel(snapshot.currentTrial.scenario_id)}</span>{" "}
             {portalMode === "researcher" ? <span className="tag">State: {currentState}</span> : null}{" "}
             <span className="tag">Elapsed: {elapsedSeconds}s</span>
           </div>
         </div>
-
-        <div style={{ marginTop: "0.7rem", display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
+        <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
           {snapshot.allTrials.map((trial) => (
             <span key={trial.trial_index} className="tag">
               {portalMode === "participant"
-                ? `Situation ${trial.trial_index + 1} ${trial.status}`
-                : `T${trial.trial_index + 1} ${trial.scenario_id}/${trial.condition}/${trial.status}`}
+                ? `${getConditionLabel(trial.condition)} / ${getScenarioLabel(trial.scenario_id)} ${trial.status}`
+                : `T${trial.trial_index + 1} ${trial.condition}/${trial.scenario_id}/${trial.status}`}
             </span>
           ))}
         </div>
       </section>
 
+      {/* Two-column workspace */}
       <div className="workspace-grid">
+        {/* LEFT: Scenario + Editor */}
         <section className="card">
           <h2>{snapshot.currentTrial.scenario.title}</h2>
-          <p style={{ color: "var(--muted)" }}>{snapshot.currentTrial.scenario.description}</p>
-
+          <p style={{ color: "black", whiteSpace: "pre-wrap" }}>{snapshot.currentTrial.scenario.description}</p>
+          <p style={{ color: "black" }} title="This word-count target is guidance only.">
+            Write a message you would actually send via text or messaging app. Aim for roughly 80-150 words.
+          </p>
           <h3>Required Message Elements</h3>
           <ul>
             {snapshot.currentTrial.scenario.requiredElements.map((element) => (
@@ -780,284 +1093,371 @@ export function StudyWorkspace({
           </ul>
 
           <h3>Main Editor</h3>
-          <textarea
-            value={editorText}
-            onChange={(event) => setEditorText(event.target.value)}
-            placeholder="Write or edit your message here..."
-            disabled={!editorEnabled || busy}
-            style={{ minHeight: "260px" }}
-          />
+          {condition === "ghost_writer" && currentState === "bullet_input" ? (
+            <div
+              title="Enter your bullet points in the AI panel first"
+              style={{ cursor: "not-allowed" }}
+            >
+              <textarea
+                value={editorText}
+                placeholder="The AI will generate a draft from your bullets..."
+                disabled
+                style={{ minHeight: "260px", pointerEvents: "none" }}
+              />
+            </div>
+          ) : (
+            <textarea
+              value={editorText}
+              onChange={(event) => handleEditorChange(event.target.value)}
+              onKeyDown={() => setKeystrokeCount((prev) => prev + 1)}
+              placeholder="Write or edit your message here..."
+              disabled={!editorEnabled || busy}
+              style={{ minHeight: "260px" }}
+            />
+          )}
+
+          <div style={{ marginTop: "0.6rem", display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+            <span className="tag" title="This updates live and is stored as a derived behavioral metric when you submit.">
+              Word Count: {wordCount}
+            </span>
+            {wordCount > 0 && wordCount < 50 ? (
+              <span className="tag" style={{ color: "var(--destructive)" }}>
+                Your message seems quite short. Would you like to add more?
+              </span>
+            ) : null}
+          </div>
 
           <div style={{ marginTop: "0.7rem", display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
             {currentState === "scenario_intro" ? (
-              <button className="primary" disabled={busy} onClick={() => void startConditionFlow()}>
+              <button
+                className="primary"
+                disabled={busy}
+                title="Starts the timed study block for this condition."
+                onClick={() => void startConditionFlow()}
+              >
                 Start When Ready
               </button>
             ) : null}
 
-            {currentState === "final_edit" ? (
-              <button className="primary" disabled={busy} onClick={() => void toSurvey()}>
-                Continue to Post-Condition Survey
+            {currentState === "independent_drafting" ? (
+              <button
+                className="primary"
+                disabled={busy || !editorText.trim()}
+                title="Locks in your independent draft and moves to the final review step."
+                onClick={() => void toFinalEdit()}
+              >
+                Continue to Final Review
               </button>
             ) : null}
 
-            {currentState === "post_condition_survey" ? (
-              <button className="primary" disabled={busy} onClick={() => void submitSurveyAndAdvance()}>
-                Submit Condition + Continue
+            {currentState === "final_edit" ? (
+              <button
+                className="primary"
+                disabled={busy}
+                title="Opens the post-condition survey for this study block."
+                onClick={() => void toSurvey()}
+              >
+                Continue to Post-Condition Survey
               </button>
             ) : null}
           </div>
 
-          {error ? <p style={{ color: "var(--warn)" }}>{error}</p> : null}
+          {error ? <p style={{ color: "var(--destructive)", marginTop: "0.5rem" }}>{error}</p> : null}
         </section>
 
+        {/* RIGHT: AI Side Panel */}
         <section className="card">
           <h2>AI Side Panel</h2>
+          <p style={{ color: "black" }}>{getPromptText(condition, currentState)}</p>
 
-          {condition === "drafter" ? (
-            <div style={{ display: "grid", gap: "0.7rem" }}>
-              <p style={{ color: "var(--muted)" }}>
-                {portalMode === "participant"
-                  ? "Use the guided writing assistant for this situation."
-                  : "Drafter flow: bullet input first, one generation, then free editing."}
-              </p>
+          {/* Ghost-writer condition */}
+          {condition === "ghost_writer" ? (
+            <div style={{ display: "grid", gap: "0.7rem", marginTop: "0.5rem" }}>
               {(currentState === "bullet_input" || currentState === "ai_generation") && (
                 <>
-                  {bullets.map((value, idx) => (
-                    <label key={idx}>
-                      Bullet {idx + 1}
+                  {bullets.map((value, index) => (
+                    <label key={index}>
+                      Bullet {index + 1}
                       <input
                         value={value}
                         onChange={(event) => {
                           const next = [...bullets];
-                          next[idx] = event.target.value;
+                          next[index] = event.target.value;
                           setBullets(next);
                         }}
                         disabled={busy || hasGeneratedDraft}
                       />
                     </label>
                   ))}
-
                   {bullets.length < 5 ? (
                     <button
                       type="button"
                       disabled={busy || hasGeneratedDraft}
+                      title="Adds an optional fourth or fifth bullet before generation."
                       onClick={() => setBullets((prev) => [...prev, ""])}
                     >
                       Add Bullet
                     </button>
                   ) : null}
-
                   <button
                     className="primary"
                     type="button"
                     disabled={busy || hasGeneratedDraft}
-                    onClick={() => void runDrafterGenerate()}
+                    title="Generates one draft only from your bullets. Regeneration is intentionally disabled."
+                    onClick={() => void runGhostWriterGenerate()}
                   >
-                    Generate Draft
+                    {busy ? "Generating…" : "Generate Draft"}
                   </button>
                 </>
               )}
-              {hasGeneratedDraft ? <p>Draft generated. You may now edit in the main editor.</p> : null}
+              {/* Show bullets summary in later states */}
+              {(currentState === "final_edit" || currentState === "post_condition_survey") && hasGeneratedDraft ? (
+                <div className="card" style={{ background: "var(--muted)" }}>
+                  <p><strong>Draft generated from your bullets:</strong></p>
+                  <ul style={{ marginTop: "0.4rem" }}>
+                    {bullets.filter(Boolean).map((bullet, index) => (
+                      <li key={index}>{bullet}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {hasGeneratedDraft && currentState !== "final_edit" && currentState !== "post_condition_survey" ? (
+                <p>Draft generated. You may now edit in the main editor.</p>
+              ) : null}
             </div>
           ) : null}
 
-          {condition === "revisor" ? (
-            <div style={{ display: "grid", gap: "0.7rem" }}>
-              <p style={{ color: "var(--muted)" }}>
-                {portalMode === "participant"
-                  ? "Write first, then review suggestion cards to refine your message."
-                  : "Revisor flow: write alone first, request structured revision suggestions, then accept/reject/modify."}
-              </p>
-
+          {/* Editor condition */}
+          {condition === "editor" ? (
+            <div style={{ display: "grid", gap: "0.7rem", marginTop: "0.5rem" }}>
               {currentState === "human_drafting" ? (
-                <button className="primary" type="button" disabled={busy} onClick={() => void runRevisorSuggestions()}>
+                <button
+                  className="primary"
+                  type="button"
+                  disabled={busy}
+                  title="Requests the fixed set of four editor suggestions."
+                  onClick={() => void runEditorSuggestions()}
+                >
                   Get Revision Suggestions
                 </button>
               ) : null}
 
-              {currentState === "ai_revision" ? (
+              {(currentState === "ai_revision" || currentState === "final_edit" || currentState === "post_condition_survey") ? (
                 <>
-                  {suggestions.length === 0 ? <p>No suggestions yet.</p> : null}
-                  {suggestions.map((suggestion) => (
-                    <div className="card" key={suggestion.id}>
-                      <p>
-                        <strong>Original:</strong> {suggestion.originalSegment}
-                      </p>
-                      <p>
-                        <strong>Suggested:</strong> {suggestion.suggestedChange}
-                      </p>
-                      <p>
-                        <strong>Reason:</strong> {suggestion.reasonTag}
-                      </p>
-                      <p>
-                        <strong>Status:</strong> {suggestionActions[suggestion.id] ?? "pending"}
-                      </p>
-                      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                        <button type="button" onClick={() => void applySuggestion(suggestion, "accept")}>Accept</button>
-                        <button type="button" onClick={() => void applySuggestion(suggestion, "modify")}>Modify</button>
-                        <button type="button" onClick={() => void applySuggestion(suggestion, "reject")}>Reject</button>
-                      </div>
-                    </div>
-                  ))}
+                  {currentState === "ai_revision" && suggestions.length === 0 ? (
+                    <p
+                      title={busy ? "Generating revision suggestions based on your draft…" : undefined}
+                      style={{ fontStyle: busy ? "italic" : undefined, color: busy ? "var(--muted-foreground)" : undefined }}
+                    >
+                      {busy ? "Generating suggestions…" : "No suggestions generated."}
+                    </p>
+                  ) : null}
 
-                  <button className="primary" type="button" onClick={() => void toFinalEdit()}>
-                    Continue to Final Edit
-                  </button>
+                  {suggestions.map((suggestion) => {
+                    const status = suggestionActions[suggestion.id] ?? "pending";
+                    return (
+                      <div
+                        className="card"
+                        key={suggestion.id}
+                        style={{ borderLeft: `3px solid ${statusColors[status] ?? "#6b7280"}` }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem", flexWrap: "wrap", gap: "0.3rem" }}>
+                          <span className="tag">{suggestion.category}</span>
+                          <span className="tag" style={{ color: statusColors[status], borderColor: statusColors[status] }}>
+                            {statusLabels[status] ?? status}
+                          </span>
+                        </div>
+                        <p><strong>Original:</strong> <em>{suggestion.originalSegment}</em></p>
+                        <p style={{ marginTop: "0.3rem" }}><strong>Suggested:</strong> {suggestion.suggestedChange}</p>
+                        <p style={{ marginTop: "0.3rem", color: "var(--muted-foreground)", fontSize: "0.88em" }}>
+                          <strong>Why:</strong> {suggestion.reasonText}
+                        </p>
+                        {currentState === "ai_revision" ? (
+                          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                            <button
+                              type="button"
+                              disabled={status !== "pending"}
+                              title="Apply the suggested edit directly to the draft."
+                              onClick={() => void applySuggestion(suggestion, "accept")}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              disabled={status !== "pending"}
+                              title="Edit the suggestion before applying it."
+                              onClick={() => void applySuggestion(suggestion, "modify")}
+                            >
+                              Modify
+                            </button>
+                            <button
+                              type="button"
+                              disabled={status !== "pending"}
+                              title="Keep your original wording for this suggestion."
+                              onClick={() => void applySuggestion(suggestion, "reject")}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+
+                  {currentState === "ai_revision" && suggestions.length > 0 ? (
+                    <button
+                      className="primary"
+                      type="button"
+                      title="Moves from suggestion review to the final editing step."
+                      onClick={() => void toFinalEdit()}
+                    >
+                      Continue to Final Review
+                    </button>
+                  ) : null}
                 </>
               ) : null}
             </div>
           ) : null}
 
-          {condition === "facilitator" ? (
-            <div style={{ display: "grid", gap: "0.7rem" }}>
-              <p style={{ color: "var(--muted)" }}>
-                {portalMode === "participant"
-                  ? "Answer reflection prompts, then draft independently."
-                  : "Facilitator flow: reflective Q&A and planning support only, then independent drafting."}
-              </p>
-
+          {/* Thought-partner condition */}
+          {condition === "thought_partner" ? (
+            <div style={{ display: "grid", gap: "0.7rem", marginTop: "0.5rem" }}>
               {currentState === "bullet_input" ? (
                 <>
-                  {bullets.map((value, idx) => (
-                    <label key={idx}>
-                      Situation Bullet {idx + 1}
+                  {bullets.map((value, index) => (
+                    <label key={index}>
+                      Situation Bullet {index + 1}
                       <input
                         value={value}
                         onChange={(event) => {
                           const next = [...bullets];
-                          next[idx] = event.target.value;
+                          next[index] = event.target.value;
                           setBullets(next);
                         }}
                         disabled={busy}
                       />
                     </label>
                   ))}
-
-                  {bullets.length < 5 ? (
-                    <button type="button" onClick={() => setBullets((prev) => [...prev, ""])}>
-                      Add Bullet
-                    </button>
-                  ) : null}
-
-                  <button className="primary" type="button" disabled={busy} onClick={() => void startFacilitatorQuestions()}>
+                  <button
+                    className="primary"
+                    type="button"
+                    disabled={busy}
+                    title="Starts the four guided reflection questions. AI will not write the message for you."
+                    onClick={() => void startThoughtPartnerQuestions()}
+                  >
                     Start Reflection Questions
                   </button>
                 </>
               ) : null}
 
-              {currentState === "reflection_questions" ? (
+              {currentState === "reflection_questions" && thoughtPartnerOutput ? (
                 <>
-                  {facilitatorOutput?.reflectiveQuestions?.map((question, idx) => (
-                    <label key={question}>
-                      Q{idx + 1}. {question}
-                      <textarea
-                        value={questionAnswers[idx] ?? ""}
-                        onChange={(event) =>
-                          setQuestionAnswers((prev) => ({ ...prev, [idx]: event.target.value }))
-                        }
-                        disabled={busy}
-                      />
-                    </label>
-                  ))}
-
-                  <button className="primary" type="button" disabled={busy} onClick={() => void summarizeReflections()}>
-                    Generate Reflection Summary
-                  </button>
-                </>
-              ) : null}
-
-              {currentState === "reflection_summary" ? (
-                <>
-                  {facilitatorOutput ? (
-                    <>
-                      <p>
-                        <strong>Recipient perspective:</strong>{" "}
-                        {facilitatorOutput.inferredRecipientPerspective}
-                      </p>
-                      <p>
-                        <strong>Emotional goal:</strong> {facilitatorOutput.emotionalGoal}
-                      </p>
-                      <p>
-                        <strong>Summary:</strong> {facilitatorOutput.summary}
-                      </p>
-                      <p>
-                        <strong>Things to avoid:</strong> {facilitatorOutput.thingsToAvoid.join(", ")}
-                      </p>
-                      <p>
-                        <strong>Concrete next step:</strong> {facilitatorOutput.concreteNextStep}
-                      </p>
-                      <ul>
-                        {facilitatorOutput.reminderChecklist.map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    </>
-                  ) : null}
-
-                  <button className="primary" type="button" disabled={busy} onClick={() => void transition("independent_drafting")}>
-                    Continue to Independent Drafting
-                  </button>
-                </>
-              ) : null}
-
-              {currentState === "independent_drafting" ? (
-                <>
-                  <p>Write your message in the main editor.</p>
+                  <div className="card">
+                    <p>
+                      <strong>Question {activeQuestionIndex + 1} of {thoughtPartnerOutput.reflectiveQuestions.length}</strong>
+                    </p>
+                    <p>{currentQuestion}</p>
+                    <textarea
+                      value={questionAnswers[activeQuestionIndex] ?? ""}
+                      onChange={(event) =>
+                        setQuestionAnswers((prev) => ({ ...prev, [activeQuestionIndex]: event.target.value }))
+                      }
+                      disabled={busy}
+                    />
+                  </div>
                   <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                    <button className="primary" type="button" disabled={busy} onClick={() => void requestOptionalFeedback()}>
-                      Get Optional High-Level Feedback
-                    </button>
-                    <button type="button" disabled={busy} onClick={() => void toFinalEdit()}>
-                      Skip Feedback and Continue
-                    </button>
+                    {activeQuestionIndex < thoughtPartnerOutput.reflectiveQuestions.length - 1 ? (
+                      <button className="primary" type="button" disabled={busy} title="Moves to the next reflection question." onClick={continueQuestionFlow}>
+                        Next Question
+                      </button>
+                    ) : (
+                      <button
+                        className="primary"
+                        type="button"
+                        disabled={busy || !allQuestionsAnswered}
+                        title="Generates a mirror summary of your reflections without giving draft wording."
+                        onClick={() => void summarizeReflections()}
+                      >
+                        Generate Reflection Summary
+                      </button>
+                    )}
+                  </div>
+                  <div className="stack-sm">
+                    {thoughtPartnerOutput.reflectiveQuestions.map((question, index) =>
+                      (questionAnswers[index] ?? "").trim().length > 0 ? (
+                        <div className="card" key={question}>
+                          <p><strong>Answered Q{index + 1}:</strong> {question}</p>
+                          <p>{questionAnswers[index]}</p>
+                        </div>
+                      ) : null
+                    )}
                   </div>
                 </>
               ) : null}
 
-              {currentState === "optional_feedback" ? (
+              {currentState === "reflection_summary" && thoughtPartnerOutput ? (
                 <>
-                  <p>
-                    <strong>High-level feedback only:</strong>
-                  </p>
-                  <ul>
-                    {(facilitatorOutput?.highLevelFeedback ?? []).map((line) => (
-                      <li key={line}>{line}</li>
-                    ))}
-                  </ul>
-                  <button className="primary" type="button" onClick={() => void toFinalEdit()}>
-                    Continue to Final Edit
+                  <div className="card">
+                    <p><strong>Reflection Summary</strong></p>
+                    <p>{thoughtPartnerOutput.summary}</p>
+                  </div>
+                  <button
+                    className="primary"
+                    type="button"
+                    disabled={busy}
+                    title="Closes AI help and moves to independent drafting."
+                    onClick={() => void toIndependentDrafting()}
+                  >
+                    Start Independent Drafting
                   </button>
                 </>
               ) : null}
-            </div>
-          ) : null}
 
-          {currentState === "post_condition_survey" ? (
-            <div className="card" style={{ marginTop: "0.8rem" }}>
-              <h3>{snapshot.conditionSurveyTemplate.title}</h3>
-              <p style={{ color: "var(--muted)" }}>{snapshot.conditionSurveyTemplate.intro}</p>
-
-              <div style={{ display: "grid", gap: "0.7rem" }}>
-                {conditionSurveyItems.map((item) => (
-                  <SurveyQuestionField
-                    key={item.id}
-                    item={item}
-                    value={conditionSurveyAnswers[item.id]}
-                    disabled={busy}
-                    onChange={(next) =>
-                      setConditionSurveyAnswers((prev) => ({
-                        ...prev,
-                        [item.id]: next
-                      }))
-                    }
-                  />
-                ))}
-              </div>
+              {/* Summary persists in independent_drafting, final_edit, and post_condition_survey */}
+              {(currentState === "independent_drafting" || currentState === "final_edit" || currentState === "post_condition_survey") && thoughtPartnerOutput?.summary ? (
+                <div className="card" style={{ background: "var(--muted)" }}>
+                  <p><strong>Your Reflection Summary</strong></p>
+                  <p style={{ marginTop: "0.4rem", fontStyle: "italic" }}>{thoughtPartnerOutput.summary}</p>
+                  <p style={{ marginTop: "0.4rem", color: "var(--muted-foreground)", fontSize: "0.85em" }}>
+                    Use this as reference while writing independently.
+                  </p>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </section>
       </div>
+
+      {/* Survey section — full width, shown when post_condition_survey */}
+      {currentState === "post_condition_survey" ? (
+        <section ref={surveyRef} className="card">
+          <h3>{snapshot.conditionSurveyTemplate.title}</h3>
+          <p style={{ color: "black" }}>{snapshot.conditionSurveyTemplate.intro}</p>
+          <div style={{ display: "grid", gap: "0.8rem", marginTop: "0.8rem" }}>
+            {conditionSurveyItems.map((item) => (
+              <SurveyQuestionField
+                key={item.id}
+                item={item}
+                value={conditionSurveyAnswers[item.id]}
+                disabled={busy}
+                onChange={(next) => setConditionSurveyAnswers((prev) => ({ ...prev, [item.id]: next }))}
+              />
+            ))}
+          </div>
+          <div style={{ marginTop: "1rem" }}>
+            <button
+              className="primary"
+              type="button"
+              disabled={busy}
+              title="Submits the current block and advances to the next step."
+              onClick={() => void submitSurveyAndAdvance()}
+            >
+              Submit Condition + Continue
+            </button>
+          </div>
+          {error ? <p style={{ color: "var(--destructive)", marginTop: "0.5rem" }}>{error}</p> : null}
+        </section>
+      ) : null}
     </div>
   );
 }

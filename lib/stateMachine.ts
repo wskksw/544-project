@@ -1,7 +1,10 @@
 import type { RoleCondition, StudyState } from "@/lib/types";
 
 const conditionTransitions: Record<RoleCondition, Record<StudyState, StudyState[]>> = {
-  drafter: {
+  ghost_writer: {
+    practice_intro: ["practice_task"],
+    practice_task: ["practice_survey"],
+    practice_survey: [],
     scenario_intro: ["bullet_input"],
     bullet_input: ["ai_generation"],
     ai_generation: ["final_edit"],
@@ -12,11 +15,13 @@ const conditionTransitions: Record<RoleCondition, Record<StudyState, StudyState[
     reflection_questions: [],
     reflection_summary: [],
     independent_drafting: [],
-    optional_feedback: [],
     inter_condition_buffer: [],
     post_study_survey: []
   },
-  revisor: {
+  editor: {
+    practice_intro: ["practice_task"],
+    practice_task: ["practice_survey"],
+    practice_survey: [],
     scenario_intro: ["human_drafting"],
     human_drafting: ["ai_revision"],
     ai_revision: ["final_edit"],
@@ -27,17 +32,18 @@ const conditionTransitions: Record<RoleCondition, Record<StudyState, StudyState[
     reflection_questions: [],
     reflection_summary: [],
     independent_drafting: [],
-    optional_feedback: [],
     inter_condition_buffer: [],
     post_study_survey: []
   },
-  facilitator: {
+  thought_partner: {
+    practice_intro: ["practice_task"],
+    practice_task: ["practice_survey"],
+    practice_survey: [],
     scenario_intro: ["bullet_input"],
     bullet_input: ["reflection_questions"],
     reflection_questions: ["reflection_summary"],
     reflection_summary: ["independent_drafting"],
-    independent_drafting: ["optional_feedback", "final_edit"],
-    optional_feedback: ["final_edit"],
+    independent_drafting: ["final_edit"],
     final_edit: ["post_condition_survey"],
     post_condition_survey: ["inter_condition_buffer"],
     human_drafting: [],
@@ -53,15 +59,15 @@ export function canTransition(condition: RoleCondition, from: StudyState, to: St
 }
 
 export function getInitialState(): StudyState {
-  return "scenario_intro";
+  return "practice_intro";
 }
 
 export function getStateSequenceForCondition(condition: RoleCondition): StudyState[] {
-  if (condition === "drafter") {
+  if (condition === "ghost_writer") {
     return ["scenario_intro", "bullet_input", "ai_generation", "final_edit", "post_condition_survey"];
   }
 
-  if (condition === "revisor") {
+  if (condition === "editor") {
     return ["scenario_intro", "human_drafting", "ai_revision", "final_edit", "post_condition_survey"];
   }
 
@@ -71,7 +77,6 @@ export function getStateSequenceForCondition(condition: RoleCondition): StudySta
     "reflection_questions",
     "reflection_summary",
     "independent_drafting",
-    "optional_feedback",
     "final_edit",
     "post_condition_survey"
   ];

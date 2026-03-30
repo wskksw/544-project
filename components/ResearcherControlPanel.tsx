@@ -15,7 +15,7 @@ import {
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-type Condition = "drafter" | "revisor" | "facilitator";
+type Condition = "thought_partner" | "editor" | "ghost_writer";
 
 type MatrixParticipant = {
   participantId: string;
@@ -29,11 +29,14 @@ type MatrixParticipant = {
   totalTrials: number;
 };
 
+type TrialSpec = {
+  condition: Condition;
+  scenarioId: string;
+};
+
 type MatrixCell = {
   cellId: string;
-  scenarioFirst: "scenario_1" | "scenario_2";
-  roleOrderId: string;
-  conditionOrder: Condition[];
+  trialSpecs: TrialSpec[];
   count: number;
   participants: MatrixParticipant[];
 };
@@ -51,9 +54,33 @@ type PopulateResponse = {
   total: number;
 };
 
+function conditionLabel(condition: Condition): string {
+  switch (condition) {
+    case "thought_partner":
+      return "Thought Partner";
+    case "editor":
+      return "Editor";
+    case "ghost_writer":
+      return "Ghost-writer";
+  }
+}
+
+function scenarioLabel(scenarioId: string): string {
+  switch (scenarioId) {
+    case "scenario_a":
+      return "A";
+    case "scenario_b":
+      return "B";
+    case "scenario_c":
+      return "C";
+    default:
+      return scenarioId;
+  }
+}
+
 export function ResearcherControlPanel() {
-  const [targetN, setTargetN] = useState("24");
-  const [message, setMessage] = useState<string>("");
+  const [targetN, setTargetN] = useState("18");
+  const [message, setMessage] = useState("");
   const [labelDrafts, setLabelDrafts] = useState<Record<string, string>>({});
   const [savingLabelId, setSavingLabelId] = useState<string | null>(null);
   const [data, setData] = useState<AssignmentPayload | null>(null);
@@ -80,10 +107,10 @@ export function ResearcherControlPanel() {
     if (!Number.isFinite(parsed) || parsed <= 0) {
       return "Target N must be positive.";
     }
-    if (parsed % 12 !== 0) {
-      return "Target N should be a multiple of 12 (12 counterbalance cells).";
+    if (parsed % 3 !== 0) {
+      return "Target N should be a multiple of 3 (3 Latin-square sequences).";
     }
-    return `Quota per cell: ${parsed / 12}`;
+    return `Quota per sequence: ${parsed / 3}`;
   }, [targetN]);
 
   const participants = useMemo(() => {
@@ -94,9 +121,7 @@ export function ResearcherControlPanel() {
     return data.cells.flatMap((cell) =>
       cell.participants.map((participant) => ({
         ...participant,
-        cellId: cell.cellId,
-        scenarioFirst: cell.scenarioFirst,
-        conditionOrder: cell.conditionOrder
+        cellId: cell.cellId
       }))
     );
   }, [data]);
@@ -109,12 +134,6 @@ export function ResearcherControlPanel() {
     setLabelDrafts(next);
   }, [participants]);
 
-  const groupedCells = useMemo(() => {
-    const scenario1 = data?.cells.filter((cell) => cell.scenarioFirst === "scenario_1") ?? [];
-    const scenario2 = data?.cells.filter((cell) => cell.scenarioFirst === "scenario_2") ?? [];
-    return { scenario1, scenario2 };
-  }, [data]);
-
   async function populateParticipants(): Promise<void> {
     setLoading(true);
     setMessage("");
@@ -122,9 +141,7 @@ export function ResearcherControlPanel() {
       const response = await fetch("/api/researcher/populate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          targetN: Number(targetN)
-        })
+        body: JSON.stringify({ targetN: Number(targetN) })
       });
 
       const json = (await response.json()) as PopulateResponse | { error: string };
@@ -186,18 +203,14 @@ export function ResearcherControlPanel() {
         <CardContent className="stack-md">
           <Label style={{ maxWidth: 220 }}>
             Target N
-            <Input
-              value={targetN}
-              onChange={(event) => setTargetN(event.target.value)}
-              disabled={Boolean(data?.lockedTargetN)}
-            />
+            <Input value={targetN} onChange={(event) => setTargetN(event.target.value)} disabled={Boolean(data?.lockedTargetN)} />
           </Label>
 
           <p className="text-muted">{quotaHint}</p>
           <p className="text-muted">
             {data?.lockedTargetN
               ? `Target N is locked at ${data.lockedTargetN} after first registration.`
-              : "Set target N, then generate access codes. Auto-assignment uses least-filled cell."}
+              : "Set target N, then generate access codes. Auto-assignment uses the least-filled cell."}
           </p>
 
           <div className="row-wrap">
@@ -229,31 +242,26 @@ export function ResearcherControlPanel() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Counterbalance Matrix (12 Cells)</CardTitle>
+          <CardTitle>Latin Square (3 Sequences)</CardTitle>
           <CardDescription>
-            Auto-assignment fills least-populated cells under the current target quota.
+            Scenario order is fixed as A, B, C. Each sequence rotates the condition assigned to those three blocks.
           </CardDescription>
         </CardHeader>
 
         <CardContent>
           <div className="matrix-grid">
-            {[
-              { label: "Scenario 1 First", cells: groupedCells.scenario1 },
-              { label: "Scenario 2 First", cells: groupedCells.scenario2 }
-            ].map((group) => (
-              <div key={group.label} className="matrix-column stack-sm">
-                <h3>{group.label}</h3>
-                <div className="stack-sm">
-                  {group.cells.map((cell) => (
-                    <div key={cell.cellId} className="matrix-cell">
-                      <strong>{cell.cellId}</strong>
-                      <span>Role order: {cell.conditionOrder.join(" -> ")}</span>
-                      <span>Filled: {cell.count}</span>
-                    </div>
-                  ))}
-                </div>
+            {data?.cells.map((cell) => (
+              <div key={cell.cellId} className="matrix-cell">
+                <strong>{cell.cellId}</strong>
+                <span>
+                  Sequence:{" "}
+                  {cell.trialSpecs
+                    .map((trial) => `${conditionLabel(trial.condition)} / ${scenarioLabel(trial.scenarioId)}`)
+                    .join(" -> ")}
+                </span>
+                <span>Filled: {cell.count}</span>
               </div>
-            ))}
+            )) ?? null}
           </div>
         </CardContent>
       </Card>
@@ -308,10 +316,7 @@ export function ResearcherControlPanel() {
                       </TableCell>
                       <TableCell>{participant.sessionStatus === "completed" ? "Yes" : "No"}</TableCell>
                       <TableCell>
-                        <Link
-                          className={buttonVariants({ variant: "link" })}
-                          href={`/study/${participant.accessCode}`}
-                        >
+                        <Link className={buttonVariants({ variant: "link" })} href={`/study/${participant.accessCode}`}>
                           Participant
                         </Link>
                       </TableCell>

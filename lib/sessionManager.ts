@@ -3,17 +3,21 @@ import { DEFAULT_TARGET_N, getCounterbalanceCells } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { logEvent, logTransition, nowIso } from "@/lib/logger";
 import { getScenarioById } from "@/lib/scenarios";
-import { canTransition, getInitialState } from "@/lib/stateMachine";
+import { canTransition } from "@/lib/stateMachine";
 import { ensureSurveyTemplatesSeeded } from "@/lib/surveys";
-import type { AssignmentCell, RoleCondition, SessionStatus, StudyState, TrialPlan } from "@/lib/types";
+import type {
+  AssignmentCell,
+  RoleCondition,
+  SessionStatus,
+  StudyState,
+  TrialPlan
+} from "@/lib/types";
 
 ensureSurveyTemplatesSeeded();
 
 type AssignmentRow = {
   participant_id: string;
   cell_id: string;
-  scenario_first: "scenario_1" | "scenario_2";
-  role_order_id: string;
   target_n: number;
   assigned_manually: number;
   created_at: string;
@@ -46,8 +50,8 @@ type TrialRow = {
 const ACCESS_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function assertTargetN(targetN: number): void {
-  if (!Number.isFinite(targetN) || targetN <= 0 || targetN % 12 !== 0) {
-    throw new Error("Target N must be a positive multiple of 12.");
+  if (!Number.isFinite(targetN) || targetN <= 0 || targetN % 3 !== 0) {
+    throw new Error("Target N must be a positive multiple of 3.");
   }
 }
 
@@ -60,37 +64,18 @@ function getTargetNLockInfo(): { count: number; distinctCount: number; lockedTar
 }
 
 function buildTrials(cell: AssignmentCell): TrialPlan[] {
-  const firstScenario = cell.scenarioFirst;
-  const secondScenario = firstScenario === "scenario_1" ? "scenario_2" : "scenario_1";
-
-  const trials: TrialPlan[] = [];
-  for (let idx = 0; idx < cell.conditionOrder.length; idx += 1) {
-    trials.push({
-      trialIndex: idx,
-      scenarioId: firstScenario,
-      condition: cell.conditionOrder[idx],
-      orderPosition: idx + 1,
-      status: "pending"
-    });
-  }
-
-  for (let idx = 0; idx < cell.conditionOrder.length; idx += 1) {
-    const trialIndex = idx + cell.conditionOrder.length;
-    trials.push({
-      trialIndex,
-      scenarioId: secondScenario,
-      condition: cell.conditionOrder[idx],
-      orderPosition: trialIndex + 1,
-      status: "pending"
-    });
-  }
-
-  return trials;
+  return cell.trialSpecs.map((trial, index) => ({
+    trialIndex: index,
+    scenarioId: trial.scenarioId,
+    condition: trial.condition,
+    orderPosition: index + 1,
+    status: "pending"
+  }));
 }
 
 function randomCodeSegment(length: number): string {
   let result = "";
-  for (let idx = 0; idx < length; idx += 1) {
+  for (let index = 0; index < length; index += 1) {
     const randomIndex = Math.floor(Math.random() * ACCESS_CODE_CHARS.length);
     result += ACCESS_CODE_CHARS[randomIndex];
   }
@@ -114,7 +99,7 @@ function generateUniqueAccessCode(): string {
 function createSessionInternal(participantId: string, trials: TrialPlan[], isPlayground: boolean): string {
   const sessionId = randomUUID();
   const createdAt = nowIso();
-  const initialState = getInitialState();
+  const initialState: StudyState = isPlayground ? "scenario_intro" : "practice_intro";
 
   db.prepare(
     `
@@ -147,15 +132,80 @@ function createSessionInternal(participantId: string, trials: TrialPlan[], isPla
     sessionId,
     trialIndex: 0,
     eventType: "session_created",
-    payload: {
-      participantId,
-      isPlayground,
-      trials
-    },
+    payload: { participantId, isPlayground, trials },
     timestamp: createdAt
   });
 
   return sessionId;
+}
+
+function wordCount(text: string): number {
+  const trimmed = text.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
+}
+
+function clampRatio(value: number | null): number | null {
+  if (value === null || Number.isNaN(value)) {
+    return null;
+  }
+  return Math.max(0, Math.min(1, value));
+}
+
+function persistTrialMetrics(params: {
+  sessionId: string;
+  trialIndex: number;
+  condition: RoleCondition;
+  scenarioId: string;
+  startedAt: string | null;
+  completedAt: string;
+  finalMessageText: string;
+  interactionMetrics?: {
+    keystrokeCount?: number;
+    selfAuthoredTextRatio?: number | null;
+    ghostWriterEditCount?: number | null;
+    reflectionDurationSec?: number | null;
+  };
+}): void {
+  const completionTimeSec = params.startedAt
+    ? Math.max(0, Math.floor((new Date(params.completedAt).getTime() - new Date(params.startedAt).getTime()) / 1000))
+    : 0;
+
+  const suggestionRows =
+    params.condition === "editor"
+      ? (db
+          .prepare("SELECT action_status FROM editor_suggestions es JOIN ai_calls ac ON ac.id = es.ai_call_id WHERE ac.session_id = ? AND ac.trial_index = ?")
+          .all(params.sessionId, params.trialIndex) as Array<{ action_status: string }>)
+      : [];
+
+  const acceptedSuggestions = suggestionRows.filter((row) => row.action_status === "accept").length;
+  const suggestionAcceptanceRate =
+    suggestionRows.length > 0 ? acceptedSuggestions / suggestionRows.length : null;
+
+  db.prepare(
+    `
+    INSERT OR REPLACE INTO trial_metrics (
+      session_id, trial_index, condition, scenario_id, completion_time_sec, word_count, keystroke_count,
+      self_authored_text_ratio, suggestion_acceptance_rate, ghost_writer_edit_count, reflection_duration_sec, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+  ).run(
+    params.sessionId,
+    params.trialIndex,
+    params.condition,
+    params.scenarioId,
+    completionTimeSec,
+    wordCount(params.finalMessageText),
+    Math.max(0, params.interactionMetrics?.keystrokeCount ?? 0),
+    clampRatio(params.interactionMetrics?.selfAuthoredTextRatio ?? null),
+    suggestionAcceptanceRate,
+    params.condition === "ghost_writer"
+      ? Math.max(0, params.interactionMetrics?.ghostWriterEditCount ?? 0)
+      : null,
+    params.condition === "thought_partner"
+      ? Math.max(0, params.interactionMetrics?.reflectionDurationSec ?? 0)
+      : null,
+    params.completedAt
+  );
 }
 
 export function registerParticipant(params: {
@@ -169,9 +219,8 @@ export function registerParticipant(params: {
 } {
   const participantLabel = (params.participantLabel ?? "").trim() || `Participant ${randomCodeSegment(3)}`;
 
-  const transaction = db.transaction(() => {
+  return db.transaction(() => {
     const lockRow = getTargetNLockInfo();
-
     if (lockRow.distinctCount > 1) {
       throw new Error("Inconsistent target N values detected in assignments. Reset data before continuing.");
     }
@@ -185,9 +234,7 @@ export function registerParticipant(params: {
     }
 
     const counts = db
-      .prepare(
-        "SELECT cell_id as cellId, COUNT(*) as count FROM assignments WHERE target_n = ? GROUP BY cell_id"
-      )
+      .prepare("SELECT cell_id as cellId, COUNT(*) as count FROM assignments WHERE target_n = ? GROUP BY cell_id")
       .all(targetN) as Array<{ cellId: string; count: number }>;
 
     const countMap = new Map<string, number>();
@@ -195,51 +242,28 @@ export function registerParticipant(params: {
       countMap.set(row.cellId, row.count);
     }
 
-    const quotaPerCell = targetN / 12;
+    const quotaPerCell = targetN / 3;
     const candidates = getCounterbalanceCells()
-      .map((cell) => ({
-        cell,
-        count: countMap.get(cell.cellId) ?? 0
-      }))
+      .map((cell) => ({ cell, count: countMap.get(cell.cellId) ?? 0 }))
       .filter((entry) => entry.count < quotaPerCell)
-      .sort((a, b) => {
-        if (a.count === b.count) {
-          return a.cell.cellId.localeCompare(b.cell.cellId);
-        }
-        return a.count - b.count;
-      });
+      .sort((a, b) => (a.count === b.count ? a.cell.cellId.localeCompare(b.cell.cellId) : a.count - b.count));
 
     if (candidates.length === 0) {
       throw new Error(`All assignment cells are full for target N=${targetN}. Increase target N.`);
     }
 
     const selectedCell = candidates[0].cell;
-
     const participantId = randomUUID();
     const accessCode = generateUniqueAccessCode();
     const createdAt = nowIso();
 
     db.prepare(
-      `
-      INSERT INTO participants (id, participant_label, access_code, created_at)
-      VALUES (?, ?, ?, ?)
-      `
+      "INSERT INTO participants (id, participant_label, access_code, created_at) VALUES (?, ?, ?, ?)"
     ).run(participantId, participantLabel, accessCode, createdAt);
 
     db.prepare(
-      `
-      INSERT INTO assignments (participant_id, cell_id, scenario_first, role_order_id, target_n, assigned_manually, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      `
-    ).run(
-      participantId,
-      selectedCell.cellId,
-      selectedCell.scenarioFirst,
-      selectedCell.roleOrderId,
-      targetN,
-      0,
-      createdAt
-    );
+      "INSERT INTO assignments (participant_id, cell_id, target_n, assigned_manually, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(participantId, selectedCell.cellId, targetN, 0, createdAt);
 
     const assignment = db
       .prepare("SELECT * FROM assignments WHERE participant_id = ?")
@@ -253,18 +277,12 @@ export function registerParticipant(params: {
     const sessionId = createSessionInternal(participantId, trials, false);
 
     return {
-      participant: {
-        id: participantId,
-        participantLabel,
-        accessCode
-      },
+      participant: { id: participantId, participantLabel, accessCode },
       assignment,
       trials,
       sessionId
     };
-  });
-
-  return transaction();
+  })();
 }
 
 export function populateParticipantsToTargetN(params: { targetN?: number }): {
@@ -309,8 +327,8 @@ export function populateParticipantsToTargetN(params: { targetN?: number }): {
     sessionId: string;
   }> = [];
 
-  for (let idx = 0; idx < missing; idx += 1) {
-    const participantLabel = `P${String(existing + idx + 1).padStart(3, "0")}`;
+  for (let index = 0; index < missing; index += 1) {
+    const participantLabel = `P${String(existing + index + 1).padStart(3, "0")}`;
     const created = registerParticipant({ participantLabel, targetN });
     participants.push({
       participantId: created.participant.id,
@@ -321,13 +339,7 @@ export function populateParticipantsToTargetN(params: { targetN?: number }): {
     });
   }
 
-  return {
-    targetN,
-    existing,
-    created: missing,
-    total: targetN,
-    participants
-  };
+  return { targetN, existing, created: missing, total: targetN, participants };
 }
 
 export function updateParticipantLabel(params: {
@@ -336,6 +348,7 @@ export function updateParticipantLabel(params: {
 }): { participantId: string; participantLabel: string; accessCode: string } {
   const participantId = params.participantId.trim();
   const participantLabel = params.participantLabel.trim();
+
   if (!participantId) {
     throw new Error("Participant ID is required.");
   }
@@ -404,9 +417,7 @@ export function resolveSessionByAccessCode(accessCode: string): {
   }
 
   const participant = db
-    .prepare(
-      "SELECT id, participant_label, access_code FROM participants WHERE UPPER(access_code) = UPPER(?)"
-    )
+    .prepare("SELECT id, participant_label, access_code FROM participants WHERE UPPER(access_code) = UPPER(?)")
     .get(normalized) as { id: string; participant_label: string; access_code: string } | undefined;
 
   if (!participant) {
@@ -481,17 +492,12 @@ export function transitionSessionState(params: {
     if (snapshot.session.status !== "active") {
       throw new Error("Session is not active.");
     }
-
     if (snapshot.session.current_state === "post_study_survey") {
       throw new Error("Final post-study survey must be submitted before session completion.");
     }
-
-    const fromState = snapshot.session.current_state;
-    const condition = snapshot.currentTrial.condition;
-
-    if (!canTransition(condition, fromState, params.toState)) {
+    if (!canTransition(snapshot.currentTrial.condition, snapshot.session.current_state, params.toState)) {
       throw new Error(
-        `Invalid transition for condition ${condition}: ${fromState} -> ${params.toState}`
+        `Invalid transition for condition ${snapshot.currentTrial.condition}: ${snapshot.session.current_state} -> ${params.toState}`
       );
     }
 
@@ -504,7 +510,7 @@ export function transitionSessionState(params: {
     logTransition({
       sessionId: params.sessionId,
       trialIndex: snapshot.currentTrial.trial_index,
-      from: fromState,
+      from: snapshot.session.current_state,
       to: params.toState,
       payload: params.payload
     });
@@ -523,15 +529,12 @@ export function startCurrentTrial(sessionId: string): { trialIndex: number; star
     if (snapshot.session.status !== "active") {
       throw new Error("Session is not active.");
     }
-
     if (snapshot.session.current_state !== "scenario_intro") {
       throw new Error("Current trial can only be started from scenario_intro.");
     }
-
     if (snapshot.currentTrial.completed_at) {
       throw new Error("Current trial is already completed.");
     }
-
     if (snapshot.currentTrial.started_at) {
       return {
         trialIndex: snapshot.currentTrial.trial_index,
@@ -540,10 +543,11 @@ export function startCurrentTrial(sessionId: string): { trialIndex: number; star
     }
 
     const startedAt = nowIso();
-    db.prepare(
-      "UPDATE trial_plan SET status = 'active', started_at = ? WHERE session_id = ? AND trial_index = ?"
-    ).run(startedAt, sessionId, snapshot.currentTrial.trial_index);
-
+    db.prepare("UPDATE trial_plan SET status = 'active', started_at = ? WHERE session_id = ? AND trial_index = ?").run(
+      startedAt,
+      sessionId,
+      snapshot.currentTrial.trial_index
+    );
     db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(startedAt, sessionId);
 
     logEvent({
@@ -565,142 +569,158 @@ export function submitTrial(params: {
   sessionId: string;
   surveyResponses: Record<string, unknown>;
   finalMessageText: string;
-  revisorActions?: unknown;
-  facilitatorResponses?: Array<{ question: string; response: string }>;
+  thoughtPartnerResponses?: Array<{ questionOrder: number; question: string; response: string }>;
+  interactionMetrics?: {
+    keystrokeCount?: number;
+    selfAuthoredTextRatio?: number | null;
+    ghostWriterEditCount?: number | null;
+    reflectionDurationSec?: number | null;
+  };
 }): {
   status: SessionStatus;
   currentTrialIndex: number;
   currentState: StudyState;
 } {
-  const transaction = db.transaction(
+  return db.transaction(
     (): { status: SessionStatus; currentTrialIndex: number; currentState: StudyState } => {
       const snapshot = getSessionSnapshot(params.sessionId);
       const session = snapshot.session;
       const trial = snapshot.currentTrial;
 
-      if (session.status !== "active") {
-        throw new Error("Session already completed.");
-      }
+    if (session.status !== "active") {
+      throw new Error("Session already completed.");
+    }
+    if (session.current_state !== "post_condition_survey") {
+      throw new Error("Session must be in post_condition_survey before submit.");
+    }
 
-      if (session.current_state !== "post_condition_survey") {
-        throw new Error("Session must be in post_condition_survey before submit.");
-      }
+    const timestamp = nowIso();
 
-      const timestamp = nowIso();
-      db.prepare(
-        "INSERT INTO surveys (session_id, trial_index, responses_json, created_at) VALUES (?, ?, ?, ?)"
-      ).run(params.sessionId, trial.trial_index, JSON.stringify(params.surveyResponses), timestamp);
+    db.prepare("INSERT INTO surveys (session_id, trial_index, responses_json, created_at) VALUES (?, ?, ?, ?)").run(
+      params.sessionId,
+      trial.trial_index,
+      JSON.stringify(params.surveyResponses),
+      timestamp
+    );
 
-      if (params.facilitatorResponses?.length) {
-        const insertReflection = db.prepare(
-          "INSERT INTO facilitator_reflections (session_id, trial_index, question, response, created_at) VALUES (?, ?, ?, ?, ?)"
+    if (params.thoughtPartnerResponses?.length) {
+      const insertReflection = db.prepare(
+        "INSERT INTO thought_partner_reflections (session_id, trial_index, question_order, question, response, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+      );
+      for (const pair of params.thoughtPartnerResponses) {
+        insertReflection.run(
+          params.sessionId,
+          trial.trial_index,
+          pair.questionOrder,
+          pair.question,
+          pair.response,
+          timestamp
         );
-        for (const pair of params.facilitatorResponses) {
-          insertReflection.run(params.sessionId, trial.trial_index, pair.question, pair.response, timestamp);
-        }
       }
+    }
 
-      db.prepare(
-        `
-        UPDATE trial_plan
-        SET status = 'completed', completed_at = ?, final_message_text = ?
-        WHERE session_id = ? AND trial_index = ?
-        `
-      ).run(timestamp, params.finalMessageText, params.sessionId, trial.trial_index);
+    db.prepare(
+      `
+      UPDATE trial_plan
+      SET status = 'completed', completed_at = ?, final_message_text = ?
+      WHERE session_id = ? AND trial_index = ?
+      `
+    ).run(timestamp, params.finalMessageText, params.sessionId, trial.trial_index);
+
+    persistTrialMetrics({
+      sessionId: params.sessionId,
+      trialIndex: trial.trial_index,
+      condition: trial.condition,
+      scenarioId: trial.scenario_id,
+      startedAt: trial.started_at,
+      completedAt: timestamp,
+      finalMessageText: params.finalMessageText,
+      interactionMetrics: params.interactionMetrics
+    });
+
+    logEvent({
+      sessionId: params.sessionId,
+      trialIndex: trial.trial_index,
+      eventType: "trial_submitted",
+      payload: {
+        finalMessageLength: params.finalMessageText.length,
+        interactionMetrics: params.interactionMetrics ?? null
+      },
+      timestamp
+    });
+
+    const nextTrial = snapshot.allTrials.find((candidate) => candidate.trial_index === trial.trial_index + 1);
+    if (!nextTrial) {
+      db.prepare("UPDATE sessions SET current_state = 'post_study_survey', updated_at = ? WHERE id = ?").run(
+        timestamp,
+        params.sessionId
+      );
 
       logEvent({
         sessionId: params.sessionId,
         trialIndex: trial.trial_index,
-        eventType: "trial_submitted",
-        payload: {
-          revisorActions: params.revisorActions ?? null,
-          finalMessageLength: params.finalMessageText.length
-        },
+        eventType: "awaiting_post_study_survey",
+        payload: { finalTrialIndex: trial.trial_index },
         timestamp
-      });
-
-      const nextTrial = snapshot.allTrials.find(
-        (candidate) => candidate.trial_index === trial.trial_index + 1
-      );
-
-      if (!nextTrial) {
-        db.prepare("UPDATE sessions SET current_state = 'post_study_survey', updated_at = ? WHERE id = ?").run(
-          timestamp,
-          params.sessionId
-        );
-
-        logEvent({
-          sessionId: params.sessionId,
-          trialIndex: trial.trial_index,
-          eventType: "awaiting_post_study_survey",
-          payload: { finalTrialIndex: trial.trial_index },
-          timestamp
-        });
-
-        return {
-          status: "active",
-          currentTrialIndex: trial.trial_index,
-          currentState: "post_study_survey"
-        };
-      }
-
-      logTransition({
-        sessionId: params.sessionId,
-        trialIndex: trial.trial_index,
-        from: "post_condition_survey",
-        to: "inter_condition_buffer",
-        payload: { nextTrialIndex: nextTrial.trial_index }
-      });
-
-      db.prepare("UPDATE trial_plan SET status = 'pending', started_at = NULL WHERE session_id = ? AND trial_index = ?").run(
-        params.sessionId,
-        nextTrial.trial_index
-      );
-
-      db.prepare(
-        "UPDATE sessions SET current_trial_index = ?, current_state = 'scenario_intro', updated_at = ? WHERE id = ?"
-      ).run(nextTrial.trial_index, timestamp, params.sessionId);
-
-      logTransition({
-        sessionId: params.sessionId,
-        trialIndex: nextTrial.trial_index,
-        from: "inter_condition_buffer",
-        to: "scenario_intro",
-        payload: { previousTrialIndex: trial.trial_index }
       });
 
       return {
         status: "active",
-        currentTrialIndex: nextTrial.trial_index,
-        currentState: "scenario_intro"
+        currentTrialIndex: trial.trial_index,
+        currentState: "post_study_survey"
       };
     }
-  );
 
-  return transaction();
+    logTransition({
+      sessionId: params.sessionId,
+      trialIndex: trial.trial_index,
+      from: "post_condition_survey",
+      to: "inter_condition_buffer",
+      payload: { nextTrialIndex: nextTrial.trial_index }
+    });
+
+    db.prepare("UPDATE sessions SET current_trial_index = ?, current_state = 'scenario_intro', updated_at = ? WHERE id = ?").run(
+      nextTrial.trial_index,
+      timestamp,
+      params.sessionId
+    );
+
+    logTransition({
+      sessionId: params.sessionId,
+      trialIndex: nextTrial.trial_index,
+      from: "inter_condition_buffer",
+      to: "scenario_intro",
+      payload: { previousTrialIndex: trial.trial_index }
+    });
+
+    return {
+      status: "active",
+      currentTrialIndex: nextTrial.trial_index,
+      currentState: "scenario_intro"
+    };
+    }
+  )();
 }
 
 export function submitPostStudySurvey(params: {
   sessionId: string;
   responses: Record<string, unknown>;
 }): { status: SessionStatus; currentState: StudyState } {
-  const transaction = db.transaction((): { status: SessionStatus; currentState: StudyState } => {
+  return db.transaction((): { status: SessionStatus; currentState: StudyState } => {
     const snapshot = getSessionSnapshot(params.sessionId);
-
     if (snapshot.session.status !== "active") {
       throw new Error("Session already completed.");
     }
-
     if (snapshot.session.current_state !== "post_study_survey") {
       throw new Error("Session is not waiting for post-study survey.");
     }
 
     const timestamp = nowIso();
-
-    db.prepare(
-      "INSERT INTO post_study_surveys (session_id, responses_json, created_at) VALUES (?, ?, ?)"
-    ).run(params.sessionId, JSON.stringify(params.responses), timestamp);
-
+    db.prepare("INSERT INTO post_study_surveys (session_id, responses_json, created_at) VALUES (?, ?, ?)").run(
+      params.sessionId,
+      JSON.stringify(params.responses),
+      timestamp
+    );
     db.prepare("UPDATE sessions SET status = 'completed', updated_at = ? WHERE id = ?").run(
       timestamp,
       params.sessionId
@@ -718,9 +738,51 @@ export function submitPostStudySurvey(params: {
       status: "completed",
       currentState: "post_study_survey"
     };
-  });
+  })();
+}
 
-  return transaction();
+export function submitPractice(params: {
+  sessionId: string;
+  practiceMessageText: string;
+  surveyResponses: Record<string, unknown>;
+}): { currentState: StudyState; currentTrialIndex: number } {
+  return db.transaction((): { currentState: StudyState; currentTrialIndex: number } => {
+    const snapshot = getSessionSnapshot(params.sessionId);
+
+    if (snapshot.session.status !== "active") {
+      throw new Error("Session is not active.");
+    }
+
+    if (snapshot.session.is_playground) {
+      throw new Error("Playground sessions do not use the practice round.");
+    }
+
+    if (snapshot.session.current_state !== "practice_survey") {
+      throw new Error("Practice survey is not currently active.");
+    }
+
+    const timestamp = nowIso();
+    db.prepare("UPDATE sessions SET current_state = 'scenario_intro', updated_at = ? WHERE id = ?").run(
+      timestamp,
+      params.sessionId
+    );
+
+    logEvent({
+      sessionId: params.sessionId,
+      trialIndex: null,
+      eventType: "practice_completed",
+      payload: {
+        practiceMessageText: params.practiceMessageText,
+        surveyResponses: params.surveyResponses
+      },
+      timestamp
+    });
+
+    return {
+      currentState: "scenario_intro",
+      currentTrialIndex: snapshot.session.current_trial_index
+    };
+  })();
 }
 
 export function getCompletionCode(sessionId: string): string {
@@ -730,9 +792,7 @@ export function getCompletionCode(sessionId: string): string {
 export function listAssignmentsAndSessions(): {
   cells: Array<{
     cellId: string;
-    scenarioFirst: "scenario_1" | "scenario_2";
-    roleOrderId: string;
-    conditionOrder: RoleCondition[];
+    trialSpecs: AssignmentCell["trialSpecs"];
     count: number;
     participants: Array<{
       participantId: string;
@@ -758,19 +818,13 @@ export function listAssignmentsAndSessions(): {
       ORDER BY a.created_at DESC
       `
     )
-    .all() as Array<
-    AssignmentRow & {
-      participant_label: string;
-      access_code: string;
-    }
-  >;
+    .all() as Array<AssignmentRow & { participant_label: string; access_code: string }>;
 
   const sessionRows = db
     .prepare(
       `
       SELECT s.id, s.participant_id, p.participant_label, p.access_code, s.status, s.current_trial_index,
-             s.current_state, s.created_at, s.updated_at,
-             tp.condition, tp.scenario_id
+             s.current_state, s.created_at, s.updated_at, tp.condition, tp.scenario_id
       FROM sessions s
       JOIN participants p ON p.id = s.participant_id
       LEFT JOIN trial_plan tp ON tp.session_id = s.id AND tp.trial_index = s.current_trial_index
@@ -836,25 +890,17 @@ export function listAssignmentsAndSessions(): {
     byCell.set(assignment.cell_id, list);
   }
 
-  const cells = getCounterbalanceCells().map((cell) => {
-    const participants = (byCell.get(cell.cellId) ?? []).sort((a, b) =>
+  const cells = getCounterbalanceCells().map((cell) => ({
+    cellId: cell.cellId,
+    trialSpecs: cell.trialSpecs,
+    count: (byCell.get(cell.cellId) ?? []).length,
+    participants: (byCell.get(cell.cellId) ?? []).sort((a, b) =>
       a.participantLabel.localeCompare(b.participantLabel)
-    );
-
-    return {
-      cellId: cell.cellId,
-      scenarioFirst: cell.scenarioFirst,
-      roleOrderId: cell.roleOrderId,
-      conditionOrder: cell.conditionOrder,
-      count: participants.length,
-      participants
-    };
-  });
+    )
+  }));
 
   const lockRow = getTargetNLockInfo();
-
-  const lockedTargetN =
-    lockRow.count > 0 && lockRow.distinctCount === 1 ? lockRow.lockedTargetN : null;
+  const lockedTargetN = lockRow.count > 0 && lockRow.distinctCount === 1 ? lockRow.lockedTargetN : null;
 
   return { cells, sessions: sessionRows, lockedTargetN };
 }
@@ -867,11 +913,12 @@ export function exportAllData(): Record<string, unknown> {
     "trial_plan",
     "events",
     "ai_calls",
-    "revisor_suggestions",
-    "facilitator_reflections",
+    "editor_suggestions",
+    "thought_partner_reflections",
     "surveys",
     "post_study_surveys",
-    "survey_templates"
+    "survey_templates",
+    "trial_metrics"
   ];
 
   const output: Record<string, unknown> = {};

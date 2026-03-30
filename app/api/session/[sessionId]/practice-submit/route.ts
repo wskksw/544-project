@@ -1,26 +1,10 @@
-import { transitionSessionState } from "@/lib/sessionManager";
+import { submitPractice } from "@/lib/sessionManager";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 const bodySchema = z.object({
-  toState: z.enum([
-    "practice_intro",
-    "practice_task",
-    "practice_survey",
-    "scenario_intro",
-    "bullet_input",
-    "human_drafting",
-    "ai_generation",
-    "ai_revision",
-    "reflection_questions",
-    "reflection_summary",
-    "independent_drafting",
-    "final_edit",
-    "post_condition_survey",
-    "inter_condition_buffer",
-    "post_study_survey"
-  ]),
-  payload: z.unknown().optional()
+  practiceMessageText: z.string(),
+  surveyResponses: z.record(z.unknown())
 });
 
 export async function POST(
@@ -30,11 +14,13 @@ export async function POST(
   try {
     const { sessionId } = await context.params;
     const parsed = bodySchema.parse(await request.json());
-    const result = transitionSessionState({
+
+    const result = submitPractice({
       sessionId,
-      toState: parsed.toState,
-      payload: parsed.payload
+      practiceMessageText: parsed.practiceMessageText,
+      surveyResponses: parsed.surveyResponses
     });
+
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

@@ -1,8 +1,11 @@
-export type RoleCondition = "drafter" | "revisor" | "facilitator";
+export type RoleCondition = "thought_partner" | "editor" | "ghost_writer";
 
 export type SessionStatus = "active" | "completed";
 
 export type StudyState =
+  | "practice_intro"
+  | "practice_task"
+  | "practice_survey"
   | "scenario_intro"
   | "bullet_input"
   | "human_drafting"
@@ -11,7 +14,6 @@ export type StudyState =
   | "reflection_questions"
   | "reflection_summary"
   | "independent_drafting"
-  | "optional_feedback"
   | "final_edit"
   | "post_condition_survey"
   | "inter_condition_buffer"
@@ -32,14 +34,17 @@ export type TrialPlan = {
   status: "pending" | "active" | "completed";
 };
 
-export type AssignmentCell = {
-  cellId: string;
-  scenarioFirst: "scenario_1" | "scenario_2";
-  roleOrderId: string;
-  conditionOrder: RoleCondition[];
+export type TrialSpec = {
+  condition: RoleCondition;
+  scenarioId: string;
 };
 
-export type SurveyItemType = "likert" | "open_text" | "multiple_choice";
+export type AssignmentCell = {
+  cellId: string;
+  trialSpecs: TrialSpec[];
+};
+
+export type SurveyItemType = "likert" | "open_text" | "multiple_choice" | "ranking";
 
 export type SurveyItem = {
   id: string;
@@ -49,7 +54,10 @@ export type SurveyItem = {
   condition: RoleCondition | "all";
   scaleMin?: number;
   scaleMax?: number;
+  scaleLabels?: string[];
   options?: string[];
+  dependsOnItemId?: string;
+  dependsOnValue?: string[];
 };
 
 export type SurveyTemplateId = "per_condition" | "post_study";

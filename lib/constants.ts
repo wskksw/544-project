@@ -1,32 +1,39 @@
-import type { AssignmentCell, RoleCondition } from "@/lib/types";
+import type { AssignmentCell } from "@/lib/types";
 
-const ROLE_ORDERS: RoleCondition[][] = [
-  ["drafter", "revisor", "facilitator"],
-  ["drafter", "facilitator", "revisor"],
-  ["revisor", "drafter", "facilitator"],
-  ["revisor", "facilitator", "drafter"],
-  ["facilitator", "drafter", "revisor"],
-  ["facilitator", "revisor", "drafter"]
+export const DEFAULT_TARGET_N = Number(process.env.AIMC_TARGET_N ?? 18);
+
+export const STUDY_MODEL = process.env.AIMC_MODEL ?? "gpt-4o-mini";
+
+export const COUNTERBALANCE_CELLS: AssignmentCell[] = [
+  {
+    cellId: "S1",
+    trialSpecs: [
+      { condition: "thought_partner", scenarioId: "scenario_a" },
+      { condition: "editor", scenarioId: "scenario_b" },
+      { condition: "ghost_writer", scenarioId: "scenario_c" }
+    ]
+  },
+  {
+    cellId: "S2",
+    trialSpecs: [
+      { condition: "editor", scenarioId: "scenario_a" },
+      { condition: "ghost_writer", scenarioId: "scenario_b" },
+      { condition: "thought_partner", scenarioId: "scenario_c" }
+    ]
+  },
+  {
+    cellId: "S3",
+    trialSpecs: [
+      { condition: "ghost_writer", scenarioId: "scenario_a" },
+      { condition: "thought_partner", scenarioId: "scenario_b" },
+      { condition: "editor", scenarioId: "scenario_c" }
+    ]
+  }
 ];
 
-export const DEFAULT_TARGET_N = Number(process.env.AIMC_TARGET_N ?? 24);
-
-export const STUDY_MODEL = process.env.AIMC_MODEL ?? "gpt-5-mini";
-
 export function getCounterbalanceCells(): AssignmentCell[] {
-  const cells: AssignmentCell[] = [];
-
-  for (const scenarioFirst of ["scenario_1", "scenario_2"] as const) {
-    ROLE_ORDERS.forEach((order, index) => {
-      const roleOrderId = `R${index + 1}`;
-      cells.push({
-        cellId: `${scenarioFirst}:${roleOrderId}`,
-        scenarioFirst,
-        roleOrderId,
-        conditionOrder: [...order]
-      });
-    });
-  }
-
-  return cells;
+  return COUNTERBALANCE_CELLS.map((cell) => ({
+    cellId: cell.cellId,
+    trialSpecs: cell.trialSpecs.map((spec) => ({ ...spec }))
+  }));
 }
