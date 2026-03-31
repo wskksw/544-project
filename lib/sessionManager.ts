@@ -679,24 +679,16 @@ export function submitTrial(params: {
       payload: { nextTrialIndex: nextTrial.trial_index }
     });
 
-    db.prepare("UPDATE sessions SET current_trial_index = ?, current_state = 'scenario_intro', updated_at = ? WHERE id = ?").run(
+    db.prepare("UPDATE sessions SET current_trial_index = ?, current_state = 'inter_condition_buffer', updated_at = ? WHERE id = ?").run(
       nextTrial.trial_index,
       timestamp,
       params.sessionId
     );
 
-    logTransition({
-      sessionId: params.sessionId,
-      trialIndex: nextTrial.trial_index,
-      from: "inter_condition_buffer",
-      to: "scenario_intro",
-      payload: { previousTrialIndex: trial.trial_index }
-    });
-
     return {
       status: "active",
       currentTrialIndex: nextTrial.trial_index,
-      currentState: "scenario_intro"
+      currentState: "inter_condition_buffer"
     };
     }
   )();

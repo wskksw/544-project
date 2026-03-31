@@ -1,10 +1,9 @@
 "use client";
 
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -65,9 +64,6 @@ export default function StudyLoginPage() {
             <Button disabled={loading} onClick={() => void handleLogin()}>
               Continue Study
             </Button>
-            <Link className={buttonVariants({ variant: "outline" })} href="/">
-              Back
-            </Link>
           </div>
 
           {error ? <p className="text-warning">{error}</p> : null}

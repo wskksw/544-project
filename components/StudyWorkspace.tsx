@@ -307,6 +307,7 @@ export function StudyWorkspace({
   const loadSnapshot = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError("");
+    setAiPanelError("");
     try {
       const next = await fetchJson<SessionPayload>(`/api/session/${sessionId}`);
       setSnapshot(next);
@@ -328,8 +329,8 @@ export function StudyWorkspace({
         body: JSON.stringify({
           trialIndex:
             snapshot.session.currentState === "practice_intro" ||
-            snapshot.session.currentState === "practice_task" ||
-            snapshot.session.currentState === "practice_survey"
+              snapshot.session.currentState === "practice_task" ||
+              snapshot.session.currentState === "practice_survey"
               ? null
               : snapshot.currentTrial.trial_index,
           eventType,
@@ -374,6 +375,7 @@ export function StudyWorkspace({
     setGhostWriterEditCount(0);
     setReflectionStartedAt(null);
     setReflectionDurationSec(null);
+    setAiPanelError("");
     seenPromptKeys.current.clear();
   }, [trialIdentity]);
 
@@ -902,6 +904,14 @@ export function StudyWorkspace({
   }
 
   if (snapshot.session.status === "completed") {
+    if (portalMode === "participant") {
+      return (
+        <div className="card">
+          <h1>Thank you for participating in our study.</h1>
+        </div>
+      );
+    }
+
     return (
       <div className="card">
         <h1>Study Complete</h1>
@@ -934,13 +944,58 @@ export function StudyWorkspace({
   const currentState = snapshot.session.currentState;
   const condition = snapshot.currentTrial.condition;
 
+  if (currentState === "inter_condition_buffer") {
+    const completedRound = Math.max(1, snapshot.currentTrial.order_position - 1);
+
+    return (
+      <div className="card" style={{ maxWidth: 760, margin: "0 auto" }}>
+        <h1>Round Complete</h1>
+        <p style={{ color: "black" }}>
+          You&apos;ve completed Round {completedRound} of {snapshot.allTrials.length}. Take a brief moment, then click Next when you&apos;re ready to continue.
+        </p>
+        <div style={{ marginTop: "0.9rem" }}>
+          <button
+            className="primary"
+            type="button"
+            disabled={busy}
+            onClick={() => void transition("scenario_intro")}
+          >
+            Next
+          </button>
+        </div>
+        {error ? <p style={{ color: "var(--warn)", marginTop: "0.6rem" }}>{error}</p> : null}
+      </div>
+    );
+  }
+
   if (currentState === "post_study_survey") {
-    const finalItems = visibleSurveyItems(snapshot.postStudySurveyTemplate, postStudyAnswers);
+    const finalTemplate =
+      portalMode === "participant"
+        ? {
+          ...snapshot.postStudySurveyTemplate,
+          items: snapshot.postStudySurveyTemplate.items.map((item) =>
+            item.id === "overall_preference_ranking"
+              ? {
+                ...item,
+                prompt:
+                  "Rank the three writing workflows from most preferred to least preferred.",
+                options: [
+                  "Workflow A: AI asked reflective questions, then you wrote independently",
+                  "Workflow B: You wrote first, then reviewed AI revision suggestions",
+                  "Workflow C: You gave bullet points and AI generated one draft"
+                ]
+              }
+              : item
+          )
+        }
+        : snapshot.postStudySurveyTemplate;
+
+    const finalItems = visibleSurveyItems(finalTemplate, postStudyAnswers);
 
     return (
       <div className="card" style={{ maxWidth: 860, margin: "0 auto" }}>
-        <h1>{snapshot.postStudySurveyTemplate.title}</h1>
-        <p style={{ color: "black" }}>{snapshot.postStudySurveyTemplate.intro}</p>
+        <h1>{finalTemplate.title}</h1>
+        <p style={{ color: "black" }}>{finalTemplate.intro}</p>
         <p style={{ color: "black" }}>All condition blocks are complete. Submit this final survey to finish the study.</p>
 
         <div style={{ display: "grid", gap: "0.8rem" }}>
@@ -1211,7 +1266,7 @@ export function StudyWorkspace({
 
           <h3>Main Editor</h3>
           {(condition === "ghost_writer" && currentState === "bullet_input") ||
-          (condition === "editor" && currentState === "ai_revision") ? (
+            (condition === "editor" && currentState === "ai_revision") ? (
             <div
               title={
                 condition === "editor"
@@ -1624,6 +1679,8 @@ export function StudyWorkspace({
               ) : null}
             </div>
           ) : null}
+
+          {aiPanelError ? <p style={{ color: "var(--destructive)", marginTop: "0.5rem" }}>{aiPanelError}</p> : null}
         </section>
       </div>
 
