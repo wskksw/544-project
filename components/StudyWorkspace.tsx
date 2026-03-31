@@ -113,7 +113,7 @@ type Suggestion = {
   id: number;
   originalSegment: string;
   suggestedChange: string;
-  category: "tone" | "specificity" | "empathy" | "closing_next_step";
+  category: "tone" | "specificity" | "empathy" | "clarity";
   reasonText: string;
 };
 
@@ -122,7 +122,17 @@ type ThoughtPartnerOutput = {
   summary: string;
 };
 
-function getConditionLabel(condition: Condition): string {
+function getConditionLabel(condition: Condition, forParticipant = false): string {
+  if (forParticipant) {
+    switch (condition) {
+      case "thought_partner":
+        return "Tool A";
+      case "editor":
+        return "Tool B";
+      case "ghost_writer":
+        return "Tool C";
+    }
+  }
   switch (condition) {
     case "thought_partner":
       return "Thought Partner";
@@ -148,10 +158,10 @@ function getScenarioLabel(scenarioId: string): string {
 
 function getPromptText(condition: Condition, state: StudyState): string {
   if (state === "practice_intro") {
-    return "Complete the short no-AI practice round before the actual study begins.";
+    return "Complete the short practice round to get familiar with the interface.";
   }
   if (state === "practice_task") {
-    return "Write a quick dummy reply so you can get used to the editor and buttons.";
+    return "Write a reply, then try the AI suggestion on the right.";
   }
   if (state === "practice_survey") {
     return "This practice feedback will not be included in the main 3-condition comparison.";
@@ -159,22 +169,22 @@ function getPromptText(condition: Condition, state: StudyState): string {
 
   const prompts: Record<Condition, Partial<Record<StudyState, string>>> = {
     ghost_writer: {
-      scenario_intro: "Read the scenario, then begin the Ghost-writer condition.",
-      bullet_input: "Enter 3-5 bullet points before one-time draft generation.",
-      ai_generation: "Generate a single Ghost-writer draft from the participant bullets only.",
+      scenario_intro: "Read the scenario carefully, then click Start When Ready to begin.",
+      bullet_input: "Write 3–5 bullet points to brief the AI on the situation and what you'd like the message to accomplish.",
+      ai_generation: "Generating a draft from your bullet points…",
       final_edit: "Edit the generated draft freely, then continue to the survey."
     },
     editor: {
-      scenario_intro: "Read the scenario, then begin the Editor condition.",
-      human_drafting: "Write a full message yourself before requesting suggestions.",
+      scenario_intro: "Read the scenario carefully, then click Start When Ready to begin.",
+      human_drafting: "Write a complete first draft — say everything you want to say in your own words. Don't worry about getting the wording perfect; the AI will suggest ways to improve it afterward.",
       ai_revision: "Review four suggestion cards and accept, reject, or modify them.",
       final_edit: "Finalize the message, then continue to the survey."
     },
     thought_partner: {
-      scenario_intro: "Read the scenario, then begin the Thought Partner condition.",
-      bullet_input: "Enter 3 bullet points before starting reflective questions.",
+      scenario_intro: "Read the scenario carefully, then click Start When Ready to begin.",
+      bullet_input: "Write 3–5 bullet points describing the situation. The AI will use these to ask you some questions to help you think through what you want to say.",
       reflection_questions: "Answer the four reflection questions one at a time.",
-      reflection_summary: "Review the mirror summary, then draft independently.",
+      reflection_summary: "Review your responses, then begin writing your message independently.",
       independent_drafting: "Write the message independently. AI is no longer available.",
       final_edit: "Finalize the message, then continue to the survey."
     }
@@ -252,6 +262,7 @@ export function StudyWorkspace({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [aiPanelError, setAiPanelError] = useState("");
 
   const [editorText, setEditorText] = useState("");
   const [bullets, setBullets] = useState<string[]>(["", "", ""]);
@@ -271,6 +282,8 @@ export function StudyWorkspace({
 
   const [modifyingId, setModifyingId] = useState<number | null>(null);
   const [modifyText, setModifyText] = useState("");
+  const [practiceNudge, setPracticeNudge] = useState<string | null>(null);
+  const [practiceNudgeRequested, setPracticeNudgeRequested] = useState(false);
 
   const [keystrokeCount, setKeystrokeCount] = useState(0);
   const [ghostWriterEditCount, setGhostWriterEditCount] = useState(0);
@@ -346,6 +359,7 @@ export function StudyWorkspace({
     setHasGeneratedDraft(false);
     setSuggestions([]);
     setSuggestionActions({});
+    setAiPanelError("");
     setModifyingId(null);
     setModifyText("");
     setThoughtPartnerOutput(null);
@@ -354,6 +368,8 @@ export function StudyWorkspace({
     setConditionSurveyAnswers({});
     setPracticeText("");
     setPracticeSurveyAnswers({});
+    setPracticeNudge(null);
+    setPracticeNudgeRequested(false);
     setKeystrokeCount(0);
     setGhostWriterEditCount(0);
     setReflectionStartedAt(null);
@@ -469,6 +485,29 @@ export function StudyWorkspace({
     }
   }
 
+  async function requestPracticeNudge(): Promise<void> {
+    if (!practiceText.trim()) {
+      setError("Write a short reply first so the AI has something to work with.");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    try {
+      const json = await fetchJson<{ nudge: string }>(`/api/session/${sessionId}/ai`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "practice_nudge", message: practiceText })
+      });
+      setPracticeNudge(json.nudge);
+      setPracticeNudgeRequested(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to get AI suggestion");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function continueToPracticeSurvey(): Promise<void> {
     if (!practiceText.trim()) {
       setError("Write a short practice reply before continuing.");
@@ -506,6 +545,8 @@ export function StudyWorkspace({
       });
       setPracticeText("");
       setPracticeSurveyAnswers({});
+      setPracticeNudge(null);
+      setPracticeNudgeRequested(false);
       setEditorText("");
       setBullets(["", "", ""]);
       setKeystrokeCount(0);
@@ -548,12 +589,12 @@ export function StudyWorkspace({
     }
     const compactBullets = bullets.map((item) => item.trim()).filter(Boolean);
     if (compactBullets.length < 3 || compactBullets.length > 5) {
-      setError("Ghost-writer requires 3-5 bullet points.");
+      setAiPanelError("Please provide 3–5 bullet points before generating.");
       return;
     }
 
     setBusy(true);
-    setError("");
+    setAiPanelError("");
     try {
       await transition("ai_generation", { bulletCount: compactBullets.length });
       const json = await fetchJson<{ draft: string }>(`/api/session/${sessionId}/ai`, {
@@ -565,7 +606,7 @@ export function StudyWorkspace({
       setHasGeneratedDraft(true);
       await transition("final_edit", { generated: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ghost-writer generation failed");
+      setAiPanelError(err instanceof Error ? err.message : "Ghost-writer generation failed");
     } finally {
       setBusy(false);
     }
@@ -576,12 +617,12 @@ export function StudyWorkspace({
       return;
     }
     if (!editorText.trim()) {
-      setError("Write a full message before requesting suggestions.");
+      setAiPanelError("Write a full message before requesting suggestions.");
       return;
     }
 
     setBusy(true);
-    setError("");
+    setAiPanelError("");
     try {
       await transition("ai_revision", { messageLength: editorText.length });
       const json = await fetchJson<{ suggestions: Suggestion[] }>(`/api/session/${sessionId}/ai`, {
@@ -597,7 +638,7 @@ export function StudyWorkspace({
       });
       setSuggestionActions(actions);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to get suggestions");
+      setAiPanelError(err instanceof Error ? err.message : "Failed to get suggestions");
     } finally {
       setBusy(false);
     }
@@ -646,13 +687,13 @@ export function StudyWorkspace({
 
   async function startThoughtPartnerQuestions(): Promise<void> {
     const compactBullets = bullets.map((item) => item.trim()).filter(Boolean);
-    if (compactBullets.length !== 3) {
-      setError("Thought Partner requires exactly 3 bullet points.");
+    if (compactBullets.length < 3 || compactBullets.length > 5) {
+      setAiPanelError("Please provide 3–5 bullet points describing the situation.");
       return;
     }
 
     setBusy(true);
-    setError("");
+    setAiPanelError("");
     try {
       await transition("reflection_questions", { bulletCount: compactBullets.length });
       const json = await fetchJson<{ thoughtPartner: ThoughtPartnerOutput }>(`/api/session/${sessionId}/ai`, {
@@ -664,7 +705,7 @@ export function StudyWorkspace({
       setActiveQuestionIndex(0);
       setReflectionStartedAt(Date.now());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start reflective questions");
+      setAiPanelError(err instanceof Error ? err.message : "Failed to start reflective questions");
     } finally {
       setBusy(false);
     }
@@ -673,40 +714,29 @@ export function StudyWorkspace({
   function continueQuestionFlow(): void {
     const answer = (questionAnswers[activeQuestionIndex] ?? "").trim();
     if (!answer) {
-      setError("Please answer the current reflection question before continuing.");
+      setAiPanelError("Please answer the current reflection question before continuing.");
       return;
     }
-    setError("");
+    setAiPanelError("");
     setActiveQuestionIndex((prev) => Math.min(prev + 1, (thoughtPartnerOutput?.reflectiveQuestions.length ?? 1) - 1));
   }
 
-  async function summarizeReflections(): Promise<void> {
-    const compactBullets = bullets.map((item) => item.trim()).filter(Boolean);
+  async function finishReflections(): Promise<void> {
     const reflections = reflectionPairs().filter((pair) => pair.response.trim().length > 0);
     if (reflections.length !== 4) {
-      setError("All four reflection questions must be answered before generating the summary.");
+      setAiPanelError("All four reflection questions must be answered before continuing.");
       return;
     }
 
     setBusy(true);
-    setError("");
+    setAiPanelError("");
     try {
       await transition("reflection_summary", { reflectionCount: reflections.length });
-      const json = await fetchJson<{ thoughtPartner: ThoughtPartnerOutput }>(`/api/session/${sessionId}/ai`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "thought_partner_summary",
-          bullets: compactBullets,
-          reflections: reflections.map(({ question, response }) => ({ question, response }))
-        })
-      });
-      setThoughtPartnerOutput(json.thoughtPartner);
       if (reflectionStartedAt) {
         setReflectionDurationSec(Math.max(0, Math.floor((Date.now() - reflectionStartedAt) / 1000)));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to summarize reflections");
+      setAiPanelError(err instanceof Error ? err.message : "Failed to finish reflections");
     } finally {
       setBusy(false);
     }
@@ -842,8 +872,7 @@ export function StudyWorkspace({
     return (
       state === "human_drafting" ||
       state === "independent_drafting" ||
-      state === "final_edit" ||
-      state === "post_condition_survey"
+      state === "final_edit"
     );
   }, [snapshot]);
 
@@ -965,69 +994,112 @@ export function StudyWorkspace({
           </div>
         </section>
 
-        <section className="card" style={{ maxWidth: 860, margin: "0 auto" }}>
-          {currentState === "practice_intro" ? (
-            <div style={{ display: "grid", gap: "0.9rem" }}>
-              <h1 title="This round is only for learning the interface.">Practice Round</h1>
-              <p style={{ color: "black" }}>
-                Before the real study begins, complete this very short no-AI practice round so the first experimental condition is not slowed down by interface learning.
-              </p>
-              <p style={{ color: "black" }}>
-                The practice task is not part of the main analysis. It should take about two minutes.
-              </p>
-              <button
-                className="primary"
-                type="button"
-                disabled={busy}
-                title="Opens a simple dummy writing task with no AI support."
-                onClick={() => void startPracticeTask()}
-              >
-                Start Practice
-              </button>
-            </div>
-          ) : null}
-
-          {currentState === "practice_task" ? (
-            <div style={{ display: "grid", gap: "0.9rem" }}>
-              <h1 title="This is a neutral warm-up prompt.">Practice Task</h1>
-              <p style={{ color: "black", whiteSpace: "pre-wrap" }}>
-                A friend texts you: &quot;Movie night starts at 7. Do you want me to bring chips or cookies?&quot; Write a short reply.
-              </p>
-              <p style={{ color: "black" }}>
-                Keep it simple. This is just to get used to the editor and submit flow.
-              </p>
-              <textarea
-                value={practiceText}
-                onChange={(event) => setPracticeText(event.target.value)}
-                placeholder="Write a short practice reply here..."
-                disabled={busy}
-                style={{ minHeight: "180px" }}
-                title="This practice editor is separate from the real study blocks."
-              />
-              <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
-                <span className="tag" title="Practice word count is not used in the experimental timing analysis.">
-                  Word Count: {countWords(practiceText)}
-                </span>
+        {currentState === "practice_intro" ? (
+          <div className="workspace-grid">
+            <section className="card">
+              <div style={{ display: "grid", gap: "0.9rem" }}>
+                <h1 title="This round is only for learning the interface.">Practice Round</h1>
+                <p style={{ color: "black" }}>
+                  Before the real study begins, complete this short practice round to get familiar with the interface — including the AI side panel on the right.
+                </p>
+                <p style={{ color: "black" }}>
+                  The practice task is not part of the main analysis. It should take about two minutes.
+                </p>
+                <button
+                  className="primary"
+                  type="button"
+                  disabled={busy}
+                  title="Opens a simple warm-up writing task."
+                  onClick={() => void startPracticeTask()}
+                >
+                  Start When Ready
+                </button>
               </div>
-              <button
-                className="primary"
-                type="button"
-                disabled={busy}
-                title="Moves to the short practice feedback survey."
-                onClick={() => void continueToPracticeSurvey()}
-              >
-                Continue to Practice Survey
-              </button>
-            </div>
-          ) : null}
+            </section>
+            <section className="card">
+              <h2>AI Side Panel</h2>
+              <p style={{ color: "var(--muted-foreground)" }}>
+                The AI assistant will appear here once you start the practice task.
+              </p>
+            </section>
+          </div>
+        ) : null}
 
-          {currentState === "practice_survey" ? (
+        {currentState === "practice_task" ? (
+          <div className="workspace-grid">
+            <section className="card">
+              <div style={{ display: "grid", gap: "0.9rem" }}>
+                <h1 title="This is a neutral warm-up prompt.">Practice Task</h1>
+                <p style={{ color: "black" }}>
+                  A friend texts you: <strong>&quot;Hey, want to grab lunch tomorrow?&quot;</strong>
+                </p>
+                <p style={{ color: "black" }}>
+                  Write a short reply. This is just to get used to the editor and the AI side panel.
+                </p>
+                <textarea
+                  value={practiceText}
+                  onChange={(event) => setPracticeText(event.target.value)}
+                  placeholder="Write a short reply here..."
+                  disabled={busy}
+                  style={{ minHeight: "180px" }}
+                  title="This practice editor is separate from the real study blocks."
+                />
+                <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+                  <span className="tag" title="Practice word count is not used in the experimental timing analysis.">
+                    Word Count: {countWords(practiceText)}
+                  </span>
+                </div>
+                <button
+                  className="primary"
+                  type="button"
+                  disabled={busy}
+                  title="Moves to the short practice feedback survey."
+                  onClick={() => void continueToPracticeSurvey()}
+                >
+                  Continue to Practice Survey
+                </button>
+              </div>
+            </section>
+            <section className="card">
+              <h2>AI Side Panel</h2>
+              {!practiceNudgeRequested ? (
+                <div style={{ display: "grid", gap: "0.7rem" }}>
+                  <p style={{ color: "black" }}>
+                    After writing your reply, click below to get a quick suggestion from the AI.
+                  </p>
+                  <button
+                    className="primary"
+                    type="button"
+                    disabled={busy || !practiceText.trim()}
+                    title="Get a single casual suggestion for your reply."
+                    onClick={() => void requestPracticeNudge()}
+                  >
+                    {busy ? "Getting suggestion…" : "Get AI Suggestion"}
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: "grid", gap: "0.7rem" }}>
+                  <div className="card" style={{ background: "var(--muted)" }}>
+                    <p><strong>AI suggestion:</strong></p>
+                    <p style={{ marginTop: "0.3rem" }}>{practiceNudge}</p>
+                  </div>
+                  <p style={{ color: "var(--muted-foreground)", fontSize: "0.88em" }}>
+                    You can edit your reply based on this suggestion, or continue as-is.
+                  </p>
+                </div>
+              )}
+            </section>
+          </div>
+        ) : null}
+
+        {currentState === "practice_survey" ? (
+          <section className="card" style={{ maxWidth: 860, margin: "0 auto" }}>
             <div style={{ display: "grid", gap: "0.9rem" }}>
               <h1 title="This quick survey checks whether the interface feels clear before the real study starts.">
                 Practice Survey
               </h1>
               <p style={{ color: "black" }}>
-                This short feedback round helps confirm participants are comfortable with the interface before the timed study conditions begin.
+                This short feedback round helps confirm you are comfortable with the interface before the timed study conditions begin.
               </p>
               <div style={{ display: "grid", gap: "0.8rem" }}>
                 {PRACTICE_SURVEY_ITEMS.map((item) => (
@@ -1050,19 +1122,19 @@ export function StudyWorkspace({
                 Begin Study
               </button>
             </div>
-          ) : null}
+          </section>
+        ) : null}
 
-          {error ? <p style={{ color: "var(--warn)" }}>{error}</p> : null}
-        </section>
+        {error ? <p style={{ color: "var(--warn)", padding: "0 1rem" }}>{error}</p> : null}
       </div>
     );
   }
 
   const categoryLabels: Record<string, string> = {
     tone: "Tone",
-    specificity: "Specificity",
     empathy: "Empathy",
-    closing_next_step: "Closing"
+    specificity: "Specificity",
+    clarity: "Clarity"
   };
 
   const statusColors: Record<string, string> = {
@@ -1099,17 +1171,21 @@ export function StudyWorkspace({
             <span className="tag" title="Only the 3 experimental blocks count toward the main comparison.">
               Block {snapshot.currentTrial.order_position} of {snapshot.allTrials.length}
             </span>{" "}
-            <span className="tag">Condition: {getConditionLabel(condition)}</span>{" "}
+            <span className="tag">Condition: {getConditionLabel(condition, portalMode === "participant")}</span>{" "}
             <span className="tag">Scenario: {getScenarioLabel(snapshot.currentTrial.scenario_id)}</span>{" "}
-            {portalMode === "researcher" ? <span className="tag">State: {currentState}</span> : null}{" "}
-            <span className="tag">Elapsed: {elapsedSeconds}s</span>
+            {portalMode === "researcher" ? (
+              <>
+                <span className="tag">State: {currentState}</span>{" "}
+                <span className="tag">Elapsed: {elapsedSeconds}s</span>
+              </>
+            ) : null}
           </div>
         </div>
         <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
           {snapshot.allTrials.map((trial) => (
             <span key={trial.trial_index} className="tag">
               {portalMode === "participant"
-                ? `${getConditionLabel(trial.condition)} / ${getScenarioLabel(trial.scenario_id)} ${trial.status}`
+                ? `Block ${trial.order_position} — ${trial.status}`
                 : `T${trial.trial_index + 1} ${trial.condition}/${trial.scenario_id}/${trial.status}`}
             </span>
           ))}
@@ -1122,15 +1198,16 @@ export function StudyWorkspace({
         <section className="card">
           <h2>{snapshot.currentTrial.scenario.title}</h2>
           <p style={{ color: "black", whiteSpace: "pre-wrap" }}>{snapshot.currentTrial.scenario.description}</p>
-          <p style={{ color: "black" }} title="This word-count target is guidance only.">
-            Write a message you would actually send via text or messaging app. Aim for roughly 80-150 words.
-          </p>
-          <h3>Required Message Elements</h3>
-          <ul>
-            {snapshot.currentTrial.scenario.requiredElements.map((element) => (
-              <li key={element}>{element}</li>
-            ))}
-          </ul>
+          {portalMode === "researcher" ? (
+            <>
+              <h3>Required Message Elements (researcher only)</h3>
+              <ul>
+                {snapshot.currentTrial.scenario.requiredElements.map((element) => (
+                  <li key={element}>{element}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
 
           <h3>Main Editor</h3>
           {(condition === "ghost_writer" && currentState === "bullet_input") ||
@@ -1229,8 +1306,9 @@ export function StudyWorkspace({
 
         {/* RIGHT: AI Side Panel */}
         <section className="card">
-          <h2>AI Side Panel</h2>
+          <h2>AI Assistant</h2>
           <p style={{ color: "black" }}>{getPromptText(condition, currentState)}</p>
+          {aiPanelError ? <p style={{ color: "var(--destructive)", marginTop: "0.3rem" }}>{aiPanelError}</p> : null}
 
           {/* Ghost-writer condition */}
           {condition === "ghost_writer" ? (
@@ -1298,7 +1376,7 @@ export function StudyWorkspace({
                 <button
                   className="primary"
                   type="button"
-                  disabled={busy}
+                  disabled={busy || !editorText.trim()}
                   title="Requests the fixed set of four editor suggestions."
                   onClick={() => void runEditorSuggestions()}
                 >
@@ -1421,7 +1499,7 @@ export function StudyWorkspace({
                 <>
                   {bullets.map((value, index) => (
                     <label key={index}>
-                      Situation Bullet {index + 1}
+                      Bullet {index + 1}
                       <textarea
                         value={value}
                         rows={3}
@@ -1435,6 +1513,16 @@ export function StudyWorkspace({
                       />
                     </label>
                   ))}
+                  {bullets.length < 5 ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      title="Adds an optional fourth or fifth bullet."
+                      onClick={() => setBullets((prev) => [...prev, ""])}
+                    >
+                      Add Bullet
+                    </button>
+                  ) : null}
                   <button
                     className="primary"
                     type="button"
@@ -1472,10 +1560,10 @@ export function StudyWorkspace({
                         className="primary"
                         type="button"
                         disabled={busy || !allQuestionsAnswered}
-                        title="Generates a mirror summary of your reflections without giving draft wording."
-                        onClick={() => void summarizeReflections()}
+                        title="Finishes reflection and shows your responses for reference."
+                        onClick={() => void finishReflections()}
                       >
-                        Generate Reflection Summary
+                        Finish Reflections
                       </button>
                     )}
                   </div>
@@ -1495,8 +1583,15 @@ export function StudyWorkspace({
               {currentState === "reflection_summary" && thoughtPartnerOutput ? (
                 <>
                   <div className="card">
-                    <p><strong>Reflection Summary</strong></p>
-                    <p>{thoughtPartnerOutput.summary}</p>
+                    <p><strong>Your Responses</strong></p>
+                    <div className="stack-sm" style={{ marginTop: "0.5rem" }}>
+                      {thoughtPartnerOutput.reflectiveQuestions.map((question, index) => (
+                        <div key={question} style={{ marginBottom: "0.6rem" }}>
+                          <p style={{ fontWeight: 600, fontSize: "0.9em" }}>Q{index + 1}: {question}</p>
+                          <p style={{ marginTop: "0.2rem" }}>{questionAnswers[index] ?? ""}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <button
                     className="primary"
@@ -1510,11 +1605,18 @@ export function StudyWorkspace({
                 </>
               ) : null}
 
-              {/* Summary persists in independent_drafting, final_edit, and post_condition_survey */}
-              {(currentState === "independent_drafting" || currentState === "final_edit" || currentState === "post_condition_survey") && thoughtPartnerOutput?.summary ? (
+              {/* Q&A pairs persist in independent_drafting, final_edit, and post_condition_survey */}
+              {(currentState === "independent_drafting" || currentState === "final_edit" || currentState === "post_condition_survey") && thoughtPartnerOutput ? (
                 <div className="card" style={{ background: "var(--muted)" }}>
-                  <p><strong>Your Reflection Summary</strong></p>
-                  <p style={{ marginTop: "0.4rem", fontStyle: "italic" }}>{thoughtPartnerOutput.summary}</p>
+                  <p><strong>Your Responses</strong></p>
+                  <div className="stack-sm" style={{ marginTop: "0.5rem" }}>
+                    {thoughtPartnerOutput.reflectiveQuestions.map((question, index) => (
+                      <div key={question} style={{ marginBottom: "0.6rem" }}>
+                        <p style={{ fontWeight: 600, fontSize: "0.9em" }}>Q{index + 1}: {question}</p>
+                        <p style={{ marginTop: "0.2rem" }}>{questionAnswers[index] ?? ""}</p>
+                      </div>
+                    ))}
+                  </div>
                   <p style={{ marginTop: "0.4rem", color: "var(--muted-foreground)", fontSize: "0.85em" }}>
                     Use this as reference while writing independently.
                   </p>

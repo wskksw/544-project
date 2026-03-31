@@ -2,7 +2,7 @@ import type { AssignmentCell } from "@/lib/types";
 
 export const DEFAULT_TARGET_N = Number(process.env.AIMC_TARGET_N ?? 18);
 
-export const STUDY_MODEL = process.env.AIMC_MODEL ?? "gpt-4o-mini";
+export const STUDY_MODEL = process.env.AIMC_MODEL ?? "gpt-5.4-mini";
 
 export const COUNTERBALANCE_CELLS: AssignmentCell[] = [
   {

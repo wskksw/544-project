@@ -60,7 +60,11 @@ const surveyTemplateSchema = z.object({
 
 const surveyTemplateListSchema = z.array(surveyTemplateSchema).length(2);
 
-const CONDITION_OPTIONS = ["Thought Partner", "Editor", "Ghost-writer"];
+const CONDITION_OPTIONS = [
+  "The tool that asked you reflection questions before you wrote",
+  "The tool that suggested revisions to your draft",
+  "The tool that generated a draft from your bullet points"
+];
 const AGREEMENT_SCALE_LABELS = [
   "Strongly disagree",
   "Disagree",

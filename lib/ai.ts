@@ -8,7 +8,7 @@ export const editorSuggestionsSchema = z.object({
       z.object({
         originalSegment: z.string().min(1),
         suggestedChange: z.string().min(1),
-        category: z.enum(["tone", "specificity", "empathy", "closing_next_step"]),
+        category: z.enum(["tone", "specificity", "empathy", "clarity"]),
         reasonText: z.string().min(1)
       })
     )
@@ -17,7 +17,7 @@ export const editorSuggestionsSchema = z.object({
 
 export const thoughtPartnerOutputSchema = z.object({
   reflectiveQuestions: z.array(z.string().min(1)).length(4),
-  summary: z.string().min(1)
+  summary: z.string().optional()
 });
 
 function safeJsonParse(raw: string): unknown {
@@ -86,21 +86,25 @@ export async function generateGhostWriterDraft(params: {
   scenario: Scenario;
   bullets: string[];
 }): Promise<{ rawText: string; systemPrompt: string; userPrompt: string }> {
-  const systemPrompt = [
-    "You are AI Ghost-writer for an interpersonal communication study.",
-    "Write one personal message using only the participant's bullet points.",
-    "Include the required scenario elements and preserve relational sensitivity.",
-    "Do not introduce new facts that are not reasonably implied by the participant bullets or scenario.",
-    "Return only the final draft message.",
-    "Target 100-150 words."
-  ].join(" ");
+  const systemPrompt = `You are a message writing assistant. The user needs to send a message to a close friend named Alex. Based on the key points they provided, write the message on their behalf.
 
-  const userPrompt = [
-    `Scenario: ${params.scenario.title}`,
-    params.scenario.description,
-    `Required elements: ${params.scenario.requiredElements.join(" | ")}`,
-    `Participant bullets: ${params.bullets.join(" | ")}`
-  ].join("\n\n");
+Rules:
+- Write in first person as if you are the user
+- Length: 80–150 words
+- Match the tone and emotional register implied by the user's bullet points — do not elevate the vocabulary or polish beyond what the bullets suggest
+- Do NOT add information, emotions, or context that the user did not mention or clearly imply
+- Do NOT include greetings like "Dear" or sign-offs like "Sincerely"
+- The message should read like a real text message — natural, conversational, not overly literary
+- If the bullet points are vague or lack detail, write the message using only what was provided — do not infer or elaborate beyond what the user stated
+
+Return only the message text, nothing else.`;
+
+  const userPrompt = `The user provided these key points:
+"""
+${params.bullets.map((b, i) => `${i + 1}. ${b.trim()}`).join("\n")}
+"""
+
+Write a complete message that the user could send to Alex via text or messaging app.`;
 
   if (!process.env.OPENAI_API_KEY) {
     return {
@@ -123,23 +127,35 @@ export async function generateEditorSuggestions(params: {
   systemPrompt: string;
   userPrompt: string;
 }> {
-  const systemPrompt = [
-    "You are AI Editor for an interpersonal communication study.",
-    "Return exactly four revision suggestions for the participant's message.",
-    "The four categories must be: tone, specificity, empathy, closing_next_step.",
-    "Revise wording only. Preserve the participant's underlying intent.",
-    "Do not introduce new factual claims beyond what is already in the draft or clearly implied by the scenario.",
-    "IMPORTANT: originalSegment must be a complete sentence (or the full clause up to terminal punctuation) copied verbatim from the draft — never a partial phrase.",
-    "suggestedChange must be a complete replacement sentence of the same scope.",
-    "Return strict JSON with this exact schema:",
-    '{"suggestions":[{"originalSegment":"<full sentence from draft>","suggestedChange":"<full replacement sentence>","category":"tone|specificity|empathy|closing_next_step","reasonText":"..."}]}'
-  ].join(" ");
+  const systemPrompt = `You are a message revision assistant. The user wrote a message to a close friend named Alex. Your job is to suggest improvements to how the message is expressed — not what it says.
 
-  const userPrompt = [
-    `Scenario: ${params.scenario.title}`,
-    `Required elements: ${params.scenario.requiredElements.join(" | ")}`,
-    `Draft message:\n${params.message}`
-  ].join("\n\n");
+Generate exactly 4 revision suggestions, one for each category below. For each, identify a specific sentence from the draft and provide a revised version.
+
+Categories:
+1. Tone — Is the emotional register appropriate for the situation and relationship?
+2. Empathy — Does the message acknowledge the recipient's likely feelings or perspective?
+3. Specificity — Could any vague statements be made more concrete or personal?
+4. Clarity — Is the sender's intent legible? Will the recipient understand what the sender wants them to know, feel, or do?
+
+Rules:
+- Each "originalSegment" must be a COMPLETE SENTENCE copied verbatim from the draft — never a partial phrase
+- Each "suggestedChange" must be a complete replacement sentence of similar scope
+- Each suggestion must target a DIFFERENT sentence from the draft
+- Preserve the user's voice and writing style — refine, do not rewrite
+- Do NOT suggest adding new content, topics, or sentiments the user did not already include
+- "reasonText" must be concise (under 20 words)
+- If the draft is already strong in a category, suggest a subtle refinement rather than a major change
+- If the draft is vague, work only with what is written — do not assume unstated details or emotions
+
+Return strict JSON matching this exact schema:
+{"suggestions":[{"originalSegment":"...","suggestedChange":"...","category":"tone|empathy|specificity|clarity","reasonText":"..."}]}`;
+
+  const userPrompt = `The user's draft:
+"""
+${params.message}
+"""
+
+Generate revision suggestions for this draft. Respond ONLY with the JSON object.`;
 
   if (!process.env.OPENAI_API_KEY) {
     const fallback = {
@@ -165,8 +181,8 @@ export async function generateEditorSuggestions(params: {
         {
           originalSegment: "Can we talk soon?",
           suggestedChange: "If you're open to it, I'd really like to talk this week and try to make this right.",
-          category: "closing_next_step" as const,
-          reasonText: "The revision ends with a clearer, more actionable repair step."
+          category: "clarity" as const,
+          reasonText: "The revision makes the intent and desired next step clearer."
         }
       ]
     };
@@ -187,68 +203,51 @@ export async function generateEditorSuggestions(params: {
 export async function generateThoughtPartnerOutput(params: {
   scenario: Scenario;
   bullets: string[];
-  reflections?: Array<{ question: string; response: string }>;
-  requestType: "questions" | "summary";
 }): Promise<{
   parsed: z.infer<typeof thoughtPartnerOutputSchema>;
   rawText: string;
   systemPrompt: string;
   userPrompt: string;
 }> {
-  const systemPrompt =
-    params.requestType === "questions"
-      ? [
-        "You are AI Thought Partner for an interpersonal communication study.",
-        "You may help the participant reflect, but you must not provide sendable message text.",
-        "Return exactly four structured reflection questions that help clarify feelings, intentions, recipient perspective, and a concrete next step.",
-        "Return strict JSON with this exact schema:",
-        '{"reflectiveQuestions":["...","...","...","..."],"summary":"..."}',
-        "For question generation, set summary to a short placeholder sentence."
-      ].join(" ")
-      : [
-        "You are AI Thought Partner for an interpersonal communication study.",
-        "You must not add advice, new content, or wording suggestions.",
-        "Write a short mirror-style summary that only reflects back the participant's stated reflections.",
-        "Return strict JSON with this exact schema:",
-        '{"reflectiveQuestions":["...","...","...","..."],"summary":"..."}',
-        "For summary generation, keep the reflectiveQuestions array identical to the original four questions provided by the user."
-      ].join(" ");
+  const systemPrompt = `You are a reflective thinking assistant. The user is about to write a message to a close friend named Alex. Before they write, help them think through what they want to say by asking reflective questions.
 
-  const reflectionBlock = params.reflections?.length
-    ? params.reflections.map((item, index) => `${index + 1}. Q: ${item.question}\nA: ${item.response}`).join("\n")
-    : "None";
+Generate exactly 4 reflective questions, one for each dimension below. Each question should be grounded in what the user shared — reference specific details from their bullet points when possible.
 
-  const userPrompt = [
-    `Scenario: ${params.scenario.title}`,
-    params.scenario.description,
-    `Required elements: ${params.scenario.requiredElements.join(" | ")}`,
-    `Initial bullets: ${params.bullets.join(" | ")}`,
-    `Request type: ${params.requestType}`,
-    `Reflections:\n${reflectionBlock}`
-  ].join("\n\n");
+Dimensions (ask in this exact order):
+1. Own feelings — Help the user identify what they are feeling about this situation
+2. Recipient's perspective — Help the user consider how Alex might be feeling or experiencing the situation
+3. Communication intent — Help the user clarify what they want Alex to feel or understand after reading the message
+4. Relational context — Help the user reflect on why this situation matters for the friendship
+
+Rules:
+- Ask ONE question per dimension
+- Each question must be open-ended (not yes/no)
+- Keep questions short and conversational (under 25 words each)
+- Do NOT give advice, suggestions, or opinions
+- Do NOT reference the message they will write — focus only on their thoughts and feelings
+- Do NOT tell the user what they should feel or what Alex might feel — ask them to explore it
+- If the bullet points are vague or lack detail, ask questions that help the user surface the specifics themselves rather than assuming details
+
+Return strict JSON matching this exact schema:
+{"reflectiveQuestions":["...","...","...","..."],"summary":"placeholder"}`;
+
+  const userPrompt = `The user described the situation:
+"""
+${params.bullets.map((b, i) => `${i + 1}. ${b.trim()}`).join("\n")}
+"""
+
+Generate reflective questions based on what the user shared. Respond ONLY with the JSON object.`;
 
   if (!process.env.OPENAI_API_KEY) {
-    const fallback =
-      params.requestType === "questions"
-        ? {
-          reflectiveQuestions: [
-            "What do you most want Alex to understand about what happened?",
-            "What emotion do you think Alex may be feeling right now?",
-            "What do you hope Alex feels after reading your message?",
-            "What concrete next step would help repair the relationship?"
-          ],
-          summary: "You are reflecting on what happened and what you want Alex to understand."
-        }
-        : {
-          reflectiveQuestions: params.reflections?.map((item) => item.question).slice(0, 4) ?? [
-            "What do you most want Alex to understand about what happened?",
-            "What emotion do you think Alex may be feeling right now?",
-            "What do you hope Alex feels after reading your message?",
-            "What concrete next step would help repair the relationship?"
-          ],
-          summary:
-            "You want to be honest about what happened, acknowledge Alex's likely feelings, and reach out in a way that feels caring and accountable."
-        };
+    const fallback = {
+      reflectiveQuestions: [
+        "What are you feeling about this situation right now?",
+        "How do you think Alex might be experiencing this?",
+        "What do you most want Alex to feel or understand after reading your message?",
+        "Why does this situation matter for your relationship with Alex?"
+      ],
+      summary: "placeholder"
+    };
 
     return {
       parsed: thoughtPartnerOutputSchema.parse(fallback),
@@ -261,4 +260,35 @@ export async function generateThoughtPartnerOutput(params: {
   const rawText = await callOpenAI(systemPrompt, userPrompt);
   const parsed = thoughtPartnerOutputSchema.parse(safeJsonParse(rawText));
   return { parsed, rawText, systemPrompt, userPrompt };
+}
+
+export async function generatePracticeNudge(params: {
+  userMessage: string;
+}): Promise<{ nudge: string; systemPrompt: string; userPrompt: string }> {
+  const systemPrompt = `You are a message writing assistant. The user is replying to a friend's text that said: "Hey, want to grab lunch tomorrow?"
+
+Your job: suggest ONE brief, casual addition they might want to include in their reply (e.g., a time, a place, a food preference).
+
+Rules:
+- Output ONLY the suggestion as a short question (under 15 words)
+- Do NOT rewrite or edit their message
+- Do NOT comment on their writing
+- Keep the tone casual and friendly
+- If their reply already covers everything, say "Looks good! Want to add anything else before sending?"`;
+
+  const userPrompt = `The user wrote:
+"""
+${params.userMessage}
+"""`;
+
+  if (!process.env.OPENAI_API_KEY) {
+    return {
+      nudge: "Want to suggest a time or place?",
+      systemPrompt,
+      userPrompt
+    };
+  }
+
+  const nudge = await callOpenAI(systemPrompt, userPrompt);
+  return { nudge, systemPrompt, userPrompt };
 }

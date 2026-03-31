@@ -2,6 +2,7 @@ import {
   editorSuggestionsSchema,
   generateEditorSuggestions,
   generateGhostWriterDraft,
+  generatePracticeNudge,
   generateThoughtPartnerOutput,
   thoughtPartnerOutputSchema
 } from "@/lib/ai";
@@ -18,23 +19,23 @@ const bodySchema = z.object({
     "ghost_writer_generate",
     "editor_suggest",
     "thought_partner_questions",
-    "thought_partner_summary"
+    "practice_nudge"
   ]),
   bullets: z.array(z.string()).optional(),
-  message: z.string().optional(),
-  reflections: z
-    .array(z.object({ question: z.string().min(1), response: z.string().min(1) }))
-    .optional()
+  message: z.string().optional()
 });
 
-function expectedCondition(action: z.infer<typeof bodySchema>["action"]): RoleCondition {
+function expectedCondition(action: z.infer<typeof bodySchema>["action"]): RoleCondition | null {
   if (action === "ghost_writer_generate") {
     return "ghost_writer";
   }
   if (action === "editor_suggest") {
     return "editor";
   }
-  return "thought_partner";
+  if (action === "thought_partner_questions") {
+    return "thought_partner";
+  }
+  return null; // practice_nudge has no condition requirement
 }
 
 export async function POST(
@@ -50,11 +51,29 @@ export async function POST(
     const scenario = getScenarioById(trial.scenario_id);
 
     const condition = expectedCondition(body.action);
-    if (trial.condition !== condition) {
+    if (condition !== null && trial.condition !== condition) {
       throw new Error(`Action ${body.action} does not match active condition ${trial.condition}.`);
     }
 
     const createdAt = nowIso();
+
+    if (body.action === "practice_nudge") {
+      const message = (body.message ?? "").trim();
+      if (!message) {
+        throw new Error("Practice nudge requires a message.");
+      }
+
+      const ai = await generatePracticeNudge({ userMessage: message });
+
+      logEvent({
+        sessionId,
+        trialIndex: null,
+        eventType: "ai_call",
+        payload: { action: body.action, nudge: ai.nudge }
+      });
+
+      return NextResponse.json({ nudge: ai.nudge });
+    }
 
     if (body.action === "ghost_writer_generate") {
       const bullets = body.bullets?.map((item) => item.trim()).filter(Boolean) ?? [];
@@ -130,7 +149,7 @@ export async function POST(
         id: number;
         originalSegment: string;
         suggestedChange: string;
-        category: "tone" | "specificity" | "empathy" | "closing_next_step";
+        category: "tone" | "specificity" | "empathy" | "clarity";
         reasonText: string;
       }> = [];
 
@@ -161,18 +180,13 @@ export async function POST(
       return NextResponse.json({ suggestions: responseSuggestions, aiCallId });
     }
 
+    // thought_partner_questions
     const bullets = body.bullets?.map((item) => item.trim()).filter(Boolean) ?? [];
     if (bullets.length < 3) {
       throw new Error("Thought Partner requires initial bullet input.");
     }
 
-    const requestType = body.action === "thought_partner_questions" ? "questions" : "summary";
-    const ai = await generateThoughtPartnerOutput({
-      scenario,
-      bullets,
-      reflections: body.reflections,
-      requestType
-    });
+    const ai = await generateThoughtPartnerOutput({ scenario, bullets });
     const parsed = thoughtPartnerOutputSchema.parse(ai.parsed);
 
     const result = db
@@ -186,11 +200,10 @@ export async function POST(
         sessionId,
         trial.trial_index,
         trial.condition,
-        requestType,
+        "questions",
         JSON.stringify({
           systemPrompt: ai.systemPrompt,
-          userPrompt: ai.userPrompt,
-          reflections: body.reflections ?? []
+          userPrompt: ai.userPrompt
         }),
         JSON.stringify({ rawText: ai.rawText }),
         JSON.stringify(parsed),
