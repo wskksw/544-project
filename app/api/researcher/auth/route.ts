@@ -13,6 +13,12 @@ const bodySchema = z.object({
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     const parsed = bodySchema.parse(await request.json());
+    const forwardedProto = request.headers.get("x-forwarded-proto") ?? "";
+    const isHttpsRequest =
+      forwardedProto
+        .split(",")
+        .map((value) => value.trim().toLowerCase())
+        .includes("https");
 
     if (!isValidResearcherAccessCode(parsed.accessCode)) {
       return NextResponse.json({ error: "Invalid researcher access code." }, { status: 401 });
@@ -21,7 +27,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const response = NextResponse.json({ ok: true });
     response.cookies.set(RESEARCHER_ACCESS_COOKIE_NAME, RESEARCHER_ACCESS_COOKIE_VALUE, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: isHttpsRequest,
       sameSite: "lax",
       path: "/",
       maxAge: 60 * 60 * 12
