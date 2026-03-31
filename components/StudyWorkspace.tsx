@@ -159,21 +159,21 @@ function getPromptText(condition: Condition, state: StudyState): string {
 
   const prompts: Record<Condition, Partial<Record<StudyState, string>>> = {
     ghost_writer: {
-      scenario_intro: "Read the scenario, then begin the Ghost-writer condition.",
+      scenario_intro: "Read the scenario, then click 'Start When Ready' to begin writing.",
       bullet_input: "Enter 3-5 bullet points before one-time draft generation.",
       ai_generation: "Generate a single Ghost-writer draft from the participant bullets only.",
       final_edit: "Edit the generated draft freely, then continue to the survey."
     },
     editor: {
-      scenario_intro: "Read the scenario, then begin the Editor condition.",
+      scenario_intro: "Read the scenario, then click 'Start When Ready' to begin writing.",
       human_drafting: "Write a full message yourself before requesting suggestions.",
       ai_revision: "Review four suggestion cards and accept, reject, or modify them.",
       final_edit: "Finalize the message, then continue to the survey."
     },
     thought_partner: {
-      scenario_intro: "Read the scenario, then begin the Thought Partner condition.",
+      scenario_intro: "Read the scenario, then click 'Start When Ready' to begin writing.",
       bullet_input: "Enter 3 bullet points before starting reflective questions.",
-      reflection_questions: "Answer the four reflection questions one at a time.",
+      reflection_questions: "Answer the questions from AI one at a time.",
       reflection_summary: "Review the mirror summary, then draft independently.",
       independent_drafting: "Write the message independently. AI is no longer available.",
       final_edit: "Finalize the message, then continue to the survey."
@@ -970,16 +970,16 @@ export function StudyWorkspace({
             <div style={{ display: "grid", gap: "0.9rem" }}>
               <h1 title="This round is only for learning the interface.">Practice Round</h1>
               <p style={{ color: "black" }}>
-                Before the real study begins, complete this very short no-AI practice round so the first experimental condition is not slowed down by interface learning.
+                Before the actual study begins, let's do a quick practice round.
               </p>
               <p style={{ color: "black" }}>
-                The practice task is not part of the main analysis. It should take about two minutes.
+                This task is not part of the main study. It should take about two minutes.
               </p>
               <button
                 className="primary"
                 type="button"
                 disabled={busy}
-                title="Opens a simple dummy writing task with no AI support."
+                title="Opens a simple dummy writing task."
                 onClick={() => void startPracticeTask()}
               >
                 Start Practice
@@ -992,9 +992,6 @@ export function StudyWorkspace({
               <h1 title="This is a neutral warm-up prompt.">Practice Task</h1>
               <p style={{ color: "black", whiteSpace: "pre-wrap" }}>
                 A friend texts you: &quot;Movie night starts at 7. Do you want me to bring chips or cookies?&quot; Write a short reply.
-              </p>
-              <p style={{ color: "black" }}>
-                Keep it simple. This is just to get used to the editor and submit flow.
               </p>
               <textarea
                 value={practiceText}
@@ -1027,7 +1024,7 @@ export function StudyWorkspace({
                 Practice Survey
               </h1>
               <p style={{ color: "black" }}>
-                This short feedback round helps confirm participants are comfortable with the interface before the timed study conditions begin.
+                This is a quick check to make sure everything feels clear before we begin.
               </p>
               <div style={{ display: "grid", gap: "0.8rem" }}>
                 {PRACTICE_SURVEY_ITEMS.map((item) => (
@@ -1229,7 +1226,7 @@ export function StudyWorkspace({
 
         {/* RIGHT: AI Side Panel */}
         <section className="card">
-          <h2>AI Side Panel</h2>
+          <h2>Interaction Panel</h2>
           <p style={{ color: "black" }}>{getPromptText(condition, currentState)}</p>
 
           {/* Ghost-writer condition */}
@@ -1442,7 +1439,7 @@ export function StudyWorkspace({
                     title="Starts the four guided reflection questions. AI will not write the message for you."
                     onClick={() => void startThoughtPartnerQuestions()}
                   >
-                    Start Reflection Questions
+                    Submit Bullets
                   </button>
                 </>
               ) : null}
@@ -1475,7 +1472,7 @@ export function StudyWorkspace({
                         title="Generates a mirror summary of your reflections without giving draft wording."
                         onClick={() => void summarizeReflections()}
                       >
-                        Generate Reflection Summary
+                        Submit Answers
                       </button>
                     )}
                   </div>
@@ -1549,7 +1546,7 @@ export function StudyWorkspace({
               title="Submits the current block and advances to the next step."
               onClick={() => void submitSurveyAndAdvance()}
             >
-              Submit Condition + Continue
+              Submit Condition and Continue
             </button>
           </div>
           {error ? <p style={{ color: "var(--destructive)", marginTop: "0.5rem" }}>{error}</p> : null}
