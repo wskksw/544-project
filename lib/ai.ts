@@ -1,5 +1,4 @@
 import { STUDY_MODEL } from "@/lib/constants";
-import type { Scenario } from "@/lib/types";
 import { z } from "zod";
 
 export const editorSuggestionsSchema = z.object({
@@ -16,8 +15,7 @@ export const editorSuggestionsSchema = z.object({
 });
 
 export const thoughtPartnerOutputSchema = z.object({
-  reflectiveQuestions: z.array(z.string().min(1)).length(4),
-  summary: z.string().optional()
+  reflectiveQuestions: z.array(z.string().min(1)).length(4)
 });
 
 function safeJsonParse(raw: string): unknown {
@@ -83,19 +81,21 @@ function mockGhostWriterDraft(bullets: string[]): string {
 }
 
 export async function generateGhostWriterDraft(params: {
-  scenario: Scenario;
   bullets: string[];
 }): Promise<{ rawText: string; systemPrompt: string; userPrompt: string }> {
-  const systemPrompt = `You are a message writing assistant. The user needs to send a message to a close friend named Alex. Based on the key points they provided, write the message on their behalf.
+  const systemPrompt = `You are a message writing assistant. The user needs to send a message to a close friend named Alex. Based only on the key points they provided, write the message on their behalf.
 
 Rules:
 - Write in first person as if you are the user
 - Length: 80–150 words
-- Match the tone and emotional register implied by the user's bullet points — do not elevate the vocabulary or polish beyond what the bullets suggest
-- Do NOT add information, emotions, or context that the user did not mention or clearly imply
+- Match the tone, emotional register, and level of polish implied by the user's bullet points
+- Preserve likely human variation: the message should sound plausible and natural, not optimized, literary, or therapist-like
+- Do NOT add information, motives, emotions, explanations, promises, or context that the user did not mention or clearly imply
 - Do NOT include greetings like "Dear" or sign-offs like "Sincerely"
 - The message should read like a real text message — natural, conversational, not overly literary
-- If the bullet points are vague or lack detail, write the message using only what was provided — do not infer or elaborate beyond what the user stated
+- Avoid generic conflict-resolution cliches, corporate phrasing, and exaggerated emotional language unless the bullets clearly support them
+- Do NOT turn bullet fragments into facts if they are uncertain or ambiguous
+- If the bullet points are vague or lack detail, write a restrained message using only what was provided — do not infer or elaborate beyond what the user stated
 
 Return only the message text, nothing else.`;
 
@@ -119,7 +119,6 @@ Write a complete message that the user could send to Alex via text or messaging 
 }
 
 export async function generateEditorSuggestions(params: {
-  scenario: Scenario;
   message: string;
 }): Promise<{
   parsed: z.infer<typeof editorSuggestionsSchema>;
@@ -142,10 +141,13 @@ Rules:
 - Each "suggestedChange" must be a complete replacement sentence of similar scope
 - Each suggestion must target a DIFFERENT sentence from the draft
 - Preserve the user's voice and writing style — refine, do not rewrite
-- Do NOT suggest adding new content, topics, or sentiments the user did not already include
+- Operate only on the expression layer: wording, tone, specificity, empathy, and clarity
+- Do NOT introduce new content, motives, facts, promises, requests, or sentiments the user did not already include
+- Do NOT use placeholders, bracketed advice, or meta-instructions inside the suggested sentence
 - "reasonText" must be concise (under 20 words)
 - If the draft is already strong in a category, suggest a subtle refinement rather than a major change
 - If the draft is vague, work only with what is written — do not assume unstated details or emotions
+- Avoid making the user sound unusually polished, formal, or emotionally articulate unless the draft already sounds that way
 
 Return strict JSON matching this exact schema:
 {"suggestions":[{"originalSegment":"...","suggestedChange":"...","category":"tone|empathy|specificity|clarity","reasonText":"..."}]}`;
@@ -201,7 +203,6 @@ Generate revision suggestions for this draft. Respond ONLY with the JSON object.
 }
 
 export async function generateThoughtPartnerOutput(params: {
-  scenario: Scenario;
   bullets: string[];
 }): Promise<{
   parsed: z.infer<typeof thoughtPartnerOutputSchema>;
@@ -226,10 +227,12 @@ Rules:
 - Do NOT give advice, suggestions, or opinions
 - Do NOT reference the message they will write — focus only on their thoughts and feelings
 - Do NOT tell the user what they should feel or what Alex might feel — ask them to explore it
+- Do NOT propose wording, strategies, or next steps
+- Do NOT moralize, diagnose, reassure, or steer the user toward reconciliation, confrontation, apology, gratitude, or any specific stance
 - If the bullet points are vague or lack detail, ask questions that help the user surface the specifics themselves rather than assuming details
 
 Return strict JSON matching this exact schema:
-{"reflectiveQuestions":["...","...","...","..."],"summary":"placeholder"}`;
+{"reflectiveQuestions":["...","...","...","..."]}`;
 
   const userPrompt = `The user described the situation:
 """
@@ -245,8 +248,7 @@ Generate reflective questions based on what the user shared. Respond ONLY with t
         "How do you think Alex might be experiencing this?",
         "What do you most want Alex to feel or understand after reading your message?",
         "Why does this situation matter for your relationship with Alex?"
-      ],
-      summary: "placeholder"
+      ]
     };
 
     return {

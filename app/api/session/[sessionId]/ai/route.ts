@@ -8,7 +8,6 @@ import {
 } from "@/lib/ai";
 import { db } from "@/lib/db";
 import { logEvent, nowIso } from "@/lib/logger";
-import { getScenarioById } from "@/lib/scenarios";
 import { getSessionSnapshot } from "@/lib/sessionManager";
 import type { RoleCondition } from "@/lib/types";
 import { NextResponse } from "next/server";
@@ -48,7 +47,6 @@ export async function POST(
 
     const snapshot = getSessionSnapshot(sessionId);
     const trial = snapshot.currentTrial;
-    const scenario = getScenarioById(trial.scenario_id);
 
     const condition = expectedCondition(body.action);
     if (condition !== null && trial.condition !== condition) {
@@ -81,7 +79,7 @@ export async function POST(
         throw new Error("Ghost-writer requires 3-5 bullets before generation.");
       }
 
-      const ai = await generateGhostWriterDraft({ scenario, bullets });
+      const ai = await generateGhostWriterDraft({ bullets });
       const result = db
         .prepare(
           `
@@ -116,7 +114,7 @@ export async function POST(
         throw new Error("Editor requires a full human-written message.");
       }
 
-      const ai = await generateEditorSuggestions({ scenario, message });
+      const ai = await generateEditorSuggestions({ message });
       const parsed = editorSuggestionsSchema.parse(ai.parsed);
 
       const result = db
@@ -186,7 +184,7 @@ export async function POST(
       throw new Error("Thought Partner requires initial bullet input.");
     }
 
-    const ai = await generateThoughtPartnerOutput({ scenario, bullets });
+    const ai = await generateThoughtPartnerOutput({ bullets });
     const parsed = thoughtPartnerOutputSchema.parse(ai.parsed);
 
     const result = db

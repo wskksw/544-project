@@ -119,20 +119,9 @@ type Suggestion = {
 
 type ThoughtPartnerOutput = {
   reflectiveQuestions: string[];
-  summary: string;
 };
 
 function getConditionLabel(condition: Condition, forParticipant = false): string {
-  if (forParticipant) {
-    switch (condition) {
-      case "thought_partner":
-        return "Tool A";
-      case "editor":
-        return "Tool B";
-      case "ghost_writer":
-        return "Tool C";
-    }
-  }
   switch (condition) {
     case "thought_partner":
       return "Thought Partner";
@@ -169,22 +158,22 @@ function getPromptText(condition: Condition, state: StudyState): string {
 
   const prompts: Record<Condition, Partial<Record<StudyState, string>>> = {
     ghost_writer: {
-      scenario_intro: "Read the scenario carefully, then click Start When Ready to begin.",
-      bullet_input: "Write 3–5 bullet points to brief the AI on the situation and what you'd like the message to accomplish.",
-      ai_generation: "Generating a draft from your bullet points…",
+      scenario_intro: "Read the scenario, then click 'Start When Ready' to begin writing.",
+      bullet_input: "Enter 3-5 bullet points before one-time draft generation.",
+      ai_generation: "Generate a single Ghost-writer draft from the participant bullets only.",
       final_edit: "Edit the generated draft freely, then continue to the survey."
     },
     editor: {
-      scenario_intro: "Read the scenario carefully, then click Start When Ready to begin.",
-      human_drafting: "Write a complete first draft — say everything you want to say in your own words. Don't worry about getting the wording perfect; the AI will suggest ways to improve it afterward.",
+      scenario_intro: "Read the scenario, then click 'Start When Ready' to begin writing.",
+      human_drafting: "Write a full message yourself before requesting suggestions.",
       ai_revision: "Review four suggestion cards and accept, reject, or modify them.",
       final_edit: "Finalize the message, then continue to the survey."
     },
     thought_partner: {
-      scenario_intro: "Read the scenario carefully, then click Start When Ready to begin.",
-      bullet_input: "Write 3–5 bullet points describing the situation. The AI will use these to ask you some questions to help you think through what you want to say.",
-      reflection_questions: "Answer the four reflection questions one at a time.",
-      reflection_summary: "Review your responses, then begin writing your message independently.",
+      scenario_intro: "Read the scenario, then click 'Start When Ready' to begin writing.",
+      bullet_input: "Write 3-5 bullet points describing the situation. The AI will ask questions next.",
+      reflection_questions: "Answer the questions from AI one at a time.",
+      reflection_summary: "Review your responses, then draft independently.",
       independent_drafting: "Write the message independently. AI is no longer available.",
       final_edit: "Finalize the message, then continue to the survey."
     }
@@ -916,23 +905,15 @@ export function StudyWorkspace({
       <div className="card">
         <h1>Study Complete</h1>
         <p>
-          {portalMode === "participant"
-            ? `Access code: ${participantAccessCode ?? snapshot.session.accessCode}`
-            : `Participant: ${snapshot.session.participantLabel} (${snapshot.session.accessCode})`}
+          Participant: {snapshot.session.participantLabel} ({snapshot.session.accessCode})
         </p>
         <p>
           Completion code: <strong>{snapshot.completionCode}</strong>
         </p>
         <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
-          {portalMode === "researcher" ? (
-            <Link href="/researcher">
-              <button type="button">Back to Console</button>
-            </Link>
-          ) : (
-            <Link href="/study">
-              <button type="button">Return to Login</button>
-            </Link>
-          )}
+          <Link href="/researcher">
+            <button type="button">Back to Console</button>
+          </Link>
           <a href="/api/researcher/export" target="_blank" rel="noreferrer">
             <button type="button">Export Data</button>
           </a>
@@ -1055,7 +1036,8 @@ export function StudyWorkspace({
               <div style={{ display: "grid", gap: "0.9rem" }}>
                 <h1 title="This round is only for learning the interface.">Practice Round</h1>
                 <p style={{ color: "black" }}>
-                  Before the real study begins, complete this short practice round to get familiar with the interface — including the AI side panel on the right.
+                  Before the real study begins, complete this short practice round to get familiar with the interface
+                  including the AI side panel on the right.
                 </p>
                 <p style={{ color: "black" }}>
                   The practice task is not part of the main analysis. It should take about two minutes.
@@ -1135,7 +1117,9 @@ export function StudyWorkspace({
               ) : (
                 <div style={{ display: "grid", gap: "0.7rem" }}>
                   <div className="card" style={{ background: "var(--muted)" }}>
-                    <p><strong>AI suggestion:</strong></p>
+                    <p>
+                      <strong>AI suggestion:</strong>
+                    </p>
                     <p style={{ marginTop: "0.3rem" }}>{practiceNudge}</p>
                   </div>
                   <p style={{ color: "var(--muted-foreground)", fontSize: "0.88em" }}>
@@ -1154,7 +1138,8 @@ export function StudyWorkspace({
                 Practice Survey
               </h1>
               <p style={{ color: "black" }}>
-                This short feedback round helps confirm you are comfortable with the interface before the timed study conditions begin.
+                This short feedback round helps confirm you are comfortable with the interface before the timed study
+                conditions begin.
               </p>
               <div style={{ display: "grid", gap: "0.8rem" }}>
                 {PRACTICE_SURVEY_ITEMS.map((item) => (
@@ -1207,7 +1192,6 @@ export function StudyWorkspace({
 
   return (
     <div className="layout-grid">
-      {/* Status bar */}
       <section className="card" style={{ padding: "0.6rem 1rem" }}>
         <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
           <div>
@@ -1226,10 +1210,10 @@ export function StudyWorkspace({
             <span className="tag" title="Only the 3 experimental blocks count toward the main comparison.">
               Block {snapshot.currentTrial.order_position} of {snapshot.allTrials.length}
             </span>{" "}
-            <span className="tag">Condition: {getConditionLabel(condition, portalMode === "participant")}</span>{" "}
-            <span className="tag">Scenario: {getScenarioLabel(snapshot.currentTrial.scenario_id)}</span>{" "}
             {portalMode === "researcher" ? (
               <>
+                <span className="tag">Condition: {getConditionLabel(condition)}</span>{" "}
+                <span className="tag">Scenario: {getScenarioLabel(snapshot.currentTrial.scenario_id)}</span>{" "}
                 <span className="tag">State: {currentState}</span>{" "}
                 <span className="tag">Elapsed: {elapsedSeconds}s</span>
               </>
@@ -1247,26 +1231,14 @@ export function StudyWorkspace({
         </div>
       </section>
 
-      {/* Two-column workspace */}
       <div className="workspace-grid">
-        {/* LEFT: Scenario + Editor */}
         <section className="card">
           <h2>{snapshot.currentTrial.scenario.title}</h2>
           <p style={{ color: "black", whiteSpace: "pre-wrap" }}>{snapshot.currentTrial.scenario.description}</p>
-          {portalMode === "researcher" ? (
-            <>
-              <h3>Required Message Elements (researcher only)</h3>
-              <ul>
-                {snapshot.currentTrial.scenario.requiredElements.map((element) => (
-                  <li key={element}>{element}</li>
-                ))}
-              </ul>
-            </>
-          ) : null}
 
           <h3>Main Editor</h3>
           {(condition === "ghost_writer" && currentState === "bullet_input") ||
-            (condition === "editor" && currentState === "ai_revision") ? (
+          (condition === "editor" && currentState === "ai_revision") ? (
             <div
               title={
                 condition === "editor"
@@ -1281,20 +1253,32 @@ export function StudyWorkspace({
                 disabled
                 style={{ minHeight: "260px", pointerEvents: "none" }}
               />
-              <div style={{
-                position: "absolute", inset: 0,
-                background: "repeating-linear-gradient(135deg, rgba(209,213,219,0.45) 0px, rgba(209,213,219,0.45) 10px, transparent 10px, transparent 20px)",
-                borderRadius: "calc(var(--radius) - 0.25rem)",
-                pointerEvents: "none",
-              }} />
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background:
+                    "repeating-linear-gradient(135deg, rgba(209,213,219,0.45) 0px, rgba(209,213,219,0.45) 10px, transparent 10px, transparent 20px)",
+                  borderRadius: "calc(var(--radius) - 0.25rem)",
+                  pointerEvents: "none"
+                }}
+              />
               {condition === "editor" ? (
-                <div style={{
-                  position: "absolute", top: "50%", left: "50%",
-                  transform: "translate(-50%, -50%)",
-                  background: "rgba(255,255,255,0.88)", padding: "0.4rem 0.9rem",
-                  borderRadius: 4, fontSize: "0.85em", color: "#374151",
-                  pointerEvents: "none", whiteSpace: "nowrap",
-                }}>
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "50%",
+                    left: "50%",
+                    transform: "translate(-50%, -50%)",
+                    background: "rgba(255,255,255,0.88)",
+                    padding: "0.4rem 0.9rem",
+                    borderRadius: 4,
+                    fontSize: "0.85em",
+                    color: "#374151",
+                    pointerEvents: "none",
+                    whiteSpace: "nowrap"
+                  }}
+                >
                   Locked — respond to suggestions in the AI panel
                 </div>
               ) : null}
@@ -1359,13 +1343,11 @@ export function StudyWorkspace({
           {error ? <p style={{ color: "var(--destructive)", marginTop: "0.5rem" }}>{error}</p> : null}
         </section>
 
-        {/* RIGHT: AI Side Panel */}
         <section className="card">
           <h2>AI Assistant</h2>
           <p style={{ color: "black" }}>{getPromptText(condition, currentState)}</p>
           {aiPanelError ? <p style={{ color: "var(--destructive)", marginTop: "0.3rem" }}>{aiPanelError}</p> : null}
 
-          {/* Ghost-writer condition */}
           {condition === "ghost_writer" ? (
             <div style={{ display: "grid", gap: "0.7rem", marginTop: "0.5rem" }}>
               {(currentState === "bullet_input" || currentState === "ai_generation") && (
@@ -1407,10 +1389,11 @@ export function StudyWorkspace({
                   </button>
                 </>
               )}
-              {/* Show bullets summary in later states */}
               {(currentState === "final_edit" || currentState === "post_condition_survey") && hasGeneratedDraft ? (
                 <div className="card" style={{ background: "var(--muted)" }}>
-                  <p><strong>Draft generated from your bullets:</strong></p>
+                  <p>
+                    <strong>Draft generated from your bullets:</strong>
+                  </p>
                   <ul style={{ marginTop: "0.4rem" }}>
                     {bullets.filter(Boolean).map((bullet, index) => (
                       <li key={index}>{bullet}</li>
@@ -1424,7 +1407,6 @@ export function StudyWorkspace({
             </div>
           ) : null}
 
-          {/* Editor condition */}
           {condition === "editor" ? (
             <div style={{ display: "grid", gap: "0.7rem", marginTop: "0.5rem" }}>
               {currentState === "human_drafting" ? (
@@ -1439,12 +1421,17 @@ export function StudyWorkspace({
                 </button>
               ) : null}
 
-              {(currentState === "ai_revision" || currentState === "final_edit" || currentState === "post_condition_survey") ? (
+              {currentState === "ai_revision" ||
+              currentState === "final_edit" ||
+              currentState === "post_condition_survey" ? (
                 <>
                   {currentState === "ai_revision" && suggestions.length === 0 ? (
                     <p
                       title={busy ? "Generating revision suggestions based on your draft…" : undefined}
-                      style={{ fontStyle: busy ? "italic" : undefined, color: busy ? "var(--muted-foreground)" : undefined }}
+                      style={{
+                        fontStyle: busy ? "italic" : undefined,
+                        color: busy ? "var(--muted-foreground)" : undefined
+                      }}
                     >
                       {busy ? "Generating suggestions…" : "No suggestions generated."}
                     </p>
@@ -1460,14 +1447,30 @@ export function StudyWorkspace({
                         key={suggestion.id}
                         style={{ borderLeft: `3px solid ${statusColors[status] ?? "#6b7280"}` }}
                       >
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.4rem", flexWrap: "wrap", gap: "0.3rem" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: "0.4rem",
+                            flexWrap: "wrap",
+                            gap: "0.3rem"
+                          }}
+                        >
                           <span className="tag">{categoryLabels[suggestion.category] ?? suggestion.category}</span>
-                          <span className="tag" style={{ color: statusColors[status], borderColor: statusColors[status] }}>
+                          <span
+                            className="tag"
+                            style={{ color: statusColors[status], borderColor: statusColors[status] }}
+                          >
                             {statusLabels[status] ?? status}
                           </span>
                         </div>
-                        <p><strong>Original:</strong> <em>{fullSentenceQuote}</em></p>
-                        <p style={{ marginTop: "0.3rem" }}><strong>Suggested:</strong> {suggestion.suggestedChange}</p>
+                        <p>
+                          <strong>Original:</strong> <em>{fullSentenceQuote}</em>
+                        </p>
+                        <p style={{ marginTop: "0.3rem" }}>
+                          <strong>Suggested:</strong> {suggestion.suggestedChange}
+                        </p>
                         <p style={{ marginTop: "0.3rem", color: "var(--muted-foreground)", fontSize: "0.88em" }}>
                           <strong>Why:</strong> {suggestion.reasonText}
                         </p>
@@ -1478,7 +1481,7 @@ export function StudyWorkspace({
                                 value={modifyText}
                                 rows={3}
                                 style={{ resize: "vertical" }}
-                                onChange={(e) => setModifyText(e.target.value)}
+                                onChange={(event) => setModifyText(event.target.value)}
                                 placeholder="Edit the suggestion before applying…"
                               />
                               <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -1496,7 +1499,10 @@ export function StudyWorkspace({
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => { setModifyingId(null); setModifyText(""); }}
+                                  onClick={() => {
+                                    setModifyingId(null);
+                                    setModifyText("");
+                                  }}
                                 >
                                   Cancel
                                 </button>
@@ -1514,7 +1520,10 @@ export function StudyWorkspace({
                               <button
                                 type="button"
                                 title="Edit the suggestion before applying it."
-                                onClick={() => { setModifyingId(suggestion.id); setModifyText(suggestion.suggestedChange); }}
+                                onClick={() => {
+                                  setModifyingId(suggestion.id);
+                                  setModifyText(suggestion.suggestedChange);
+                                }}
                               >
                                 Modify
                               </button>
@@ -1547,7 +1556,6 @@ export function StudyWorkspace({
             </div>
           ) : null}
 
-          {/* Thought-partner condition */}
           {condition === "thought_partner" ? (
             <div style={{ display: "grid", gap: "0.7rem", marginTop: "0.5rem" }}>
               {currentState === "bullet_input" ? (
@@ -1594,7 +1602,9 @@ export function StudyWorkspace({
                 <>
                   <div className="card">
                     <p>
-                      <strong>Question {activeQuestionIndex + 1} of {thoughtPartnerOutput.reflectiveQuestions.length}</strong>
+                      <strong>
+                        Question {activeQuestionIndex + 1} of {thoughtPartnerOutput.reflectiveQuestions.length}
+                      </strong>
                     </p>
                     <p>{currentQuestion}</p>
                     <textarea
@@ -1607,7 +1617,13 @@ export function StudyWorkspace({
                   </div>
                   <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
                     {activeQuestionIndex < thoughtPartnerOutput.reflectiveQuestions.length - 1 ? (
-                      <button className="primary" type="button" disabled={busy} title="Moves to the next reflection question." onClick={continueQuestionFlow}>
+                      <button
+                        className="primary"
+                        type="button"
+                        disabled={busy}
+                        title="Moves to the next reflection question."
+                        onClick={continueQuestionFlow}
+                      >
                         Next Question
                       </button>
                     ) : (
@@ -1626,7 +1642,9 @@ export function StudyWorkspace({
                     {thoughtPartnerOutput.reflectiveQuestions.map((question, index) =>
                       (questionAnswers[index] ?? "").trim().length > 0 ? (
                         <div className="card" key={question}>
-                          <p><strong>Answered Q{index + 1}:</strong> {question}</p>
+                          <p>
+                            <strong>Answered Q{index + 1}:</strong> {question}
+                          </p>
                           <p>{questionAnswers[index]}</p>
                         </div>
                       ) : null
@@ -1638,11 +1656,15 @@ export function StudyWorkspace({
               {currentState === "reflection_summary" && thoughtPartnerOutput ? (
                 <>
                   <div className="card">
-                    <p><strong>Your Responses</strong></p>
+                    <p>
+                      <strong>Your Responses</strong>
+                    </p>
                     <div className="stack-sm" style={{ marginTop: "0.5rem" }}>
                       {thoughtPartnerOutput.reflectiveQuestions.map((question, index) => (
                         <div key={question} style={{ marginBottom: "0.6rem" }}>
-                          <p style={{ fontWeight: 600, fontSize: "0.9em" }}>Q{index + 1}: {question}</p>
+                          <p style={{ fontWeight: 600, fontSize: "0.9em" }}>
+                            Q{index + 1}: {question}
+                          </p>
                           <p style={{ marginTop: "0.2rem" }}>{questionAnswers[index] ?? ""}</p>
                         </div>
                       ))}
@@ -1660,14 +1682,20 @@ export function StudyWorkspace({
                 </>
               ) : null}
 
-              {/* Q&A pairs persist in independent_drafting, final_edit, and post_condition_survey */}
-              {(currentState === "independent_drafting" || currentState === "final_edit" || currentState === "post_condition_survey") && thoughtPartnerOutput ? (
+              {(currentState === "independent_drafting" ||
+                currentState === "final_edit" ||
+                currentState === "post_condition_survey") &&
+              thoughtPartnerOutput ? (
                 <div className="card" style={{ background: "var(--muted)" }}>
-                  <p><strong>Your Responses</strong></p>
+                  <p>
+                    <strong>Your Responses</strong>
+                  </p>
                   <div className="stack-sm" style={{ marginTop: "0.5rem" }}>
                     {thoughtPartnerOutput.reflectiveQuestions.map((question, index) => (
                       <div key={question} style={{ marginBottom: "0.6rem" }}>
-                        <p style={{ fontWeight: 600, fontSize: "0.9em" }}>Q{index + 1}: {question}</p>
+                        <p style={{ fontWeight: 600, fontSize: "0.9em" }}>
+                          Q{index + 1}: {question}
+                        </p>
                         <p style={{ marginTop: "0.2rem" }}>{questionAnswers[index] ?? ""}</p>
                       </div>
                     ))}
@@ -1684,7 +1712,6 @@ export function StudyWorkspace({
         </section>
       </div>
 
-      {/* Survey section — full width, shown when post_condition_survey */}
       {currentState === "post_condition_survey" ? (
         <section ref={surveyRef} className="card">
           <h3>{snapshot.conditionSurveyTemplate.title}</h3>
