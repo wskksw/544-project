@@ -14,9 +14,19 @@ export const editorSuggestionsSchema = z.object({
     .length(4)
 });
 
-export const thoughtPartnerOutputSchema = z.object({
-  reflectiveQuestions: z.array(z.string().min(1)).length(4)
-});
+export const thoughtPartnerOutputSchema = z
+  .array(
+    z.object({
+      dimension: z.enum([
+        "Own feelings",
+        "Recipient's perspective",
+        "Communication intent",
+        "Relational context"
+      ]),
+      question: z.string().min(1)
+    })
+  )
+  .length(4);
 
 function safeJsonParse(raw: string): unknown {
   try {
@@ -72,18 +82,20 @@ async function callOpenAI(systemPrompt: string, userPrompt: string): Promise<str
 
 function mockGhostWriterDraft(bullets: string[]): string {
   return [
-    "Hey Alex,",
+    "I wanted to reach out about this.",
     "",
-    ...bullets.map((bullet) => `- ${bullet.trim()}`),
+    ...bullets.map((bullet) => bullet.trim()).filter(Boolean),
     "",
-    "I care about our friendship and wanted to reach out honestly. Can we talk soon?"
+    "I care about our friendship and wanted to be honest. If you're open to it, I'd like to talk soon."
   ].join("\n");
 }
 
 export async function generateGhostWriterDraft(params: {
   bullets: string[];
 }): Promise<{ rawText: string; systemPrompt: string; userPrompt: string }> {
-  const systemPrompt = `You are a message writing assistant. The user needs to send a message to a close friend named Alex. Based only on the key points they provided, write the message on their behalf.
+  const systemPrompt = `You are a message writing assistant. The user needs to send a message to a close friend. Based only on the key points they provided, write the message on their behalf.
+
+Use only the bullet points provided in the user prompt. Do NOT use, infer, or reference any external scenario descriptions, templates, metadata, or study context.
 
 Rules:
 - Write in first person as if you are the user
@@ -104,7 +116,7 @@ Return only the message text, nothing else.`;
 ${params.bullets.map((b, i) => `${i + 1}. ${b.trim()}`).join("\n")}
 """
 
-Write a complete message that the user could send to Alex via text or messaging app.`;
+Write a complete message that the user could send via text or messaging app.`;
 
   if (!process.env.OPENAI_API_KEY) {
     return {
@@ -126,28 +138,31 @@ export async function generateEditorSuggestions(params: {
   systemPrompt: string;
   userPrompt: string;
 }> {
-  const systemPrompt = `You are a message revision assistant. The user wrote a message to a close friend named Alex. Your job is to suggest improvements to how the message is expressed — not what it says.
+  const systemPrompt = `You are a message revision assistant. The user wrote a message to a close friend. Suggest revisions based only on what is written in the draft.
 
-Generate exactly 4 revision suggestions, one for each category below. For each, identify a specific sentence from the draft and provide a revised version.
+Generate exactly 4 revision suggestions, one for each category below. For each suggestion, identify a specific sentence or phrase from the draft that could be improved, and provide a revised version.
 
 Categories:
-1. Tone — Is the emotional register appropriate for the situation and relationship?
-2. Empathy — Does the message acknowledge the recipient's likely feelings or perspective?
-3. Specificity — Could any vague statements be made more concrete or personal?
-4. Clarity — Is the sender's intent legible? Will the recipient understand what the sender wants them to know, feel, or do?
+1. Tone: Is the emotional register appropriate for the situation and relationship?
+2. Empathy: Does the message acknowledge the recipient's feelings or perspective?
+3. Specificity: Could any vague statements be made more concrete or personal?
+4. Clarity: Is the sender's intention or meaning clearly expressed?
+
+Example:
+If the user's draft were:
+"Hey, I know things have been weird between us. I messed up and I feel bad about it. I hope we can move past this. You mean a lot to me."
+
+Then the suggestions could be:
+- Tone: original "I know things have been weird between us" -> suggested "I know things have been tense between us, and that's on me"
+- Empathy: original "I hope we can move past this" -> suggested "I understand if you're not ready to move past this yet, but I hope we can talk"
+- Specificity: original "I messed up and I feel bad about it" -> suggested "I feel bad about how I handled things, and you deserved better"
+- Clarity: original "You mean a lot to me" -> suggested "I don't want this to affect our friendship — you mean a lot to me"
 
 Rules:
-- Each "originalSegment" must be a COMPLETE SENTENCE copied verbatim from the draft — never a partial phrase
-- Each "suggestedChange" must be a complete replacement sentence of similar scope
-- Each suggestion must target a DIFFERENT sentence from the draft
-- Preserve the user's voice and writing style — refine, do not rewrite
-- Operate only on the expression layer: wording, tone, specificity, empathy, and clarity
-- Do NOT introduce new content, motives, facts, promises, requests, or sentiments the user did not already include
-- Do NOT use placeholders, bracketed advice, or meta-instructions inside the suggested sentence
-- "reasonText" must be concise (under 20 words)
-- If the draft is already strong in a category, suggest a subtle refinement rather than a major change
-- If the draft is vague, work only with what is written — do not assume unstated details or emotions
-- Avoid making the user sound unusually polished, formal, or emotionally articulate unless the draft already sounds that way
+- Each suggestion should revise a DIFFERENT part of the draft
+- Reasons should be concise (under 20 words)
+- If the draft is strong in a category, still suggest a subtle improvement
+- Keep each category exactly one of: tone, empathy, specificity, clarity
 
 Return strict JSON matching this exact schema:
 {"suggestions":[{"originalSegment":"...","suggestedChange":"...","category":"tone|empathy|specificity|clarity","reasonText":"..."}]}`;
@@ -157,7 +172,7 @@ Return strict JSON matching this exact schema:
 ${params.message}
 """
 
-Generate revision suggestions for this draft. Respond ONLY with the JSON object.`;
+Now generate suggestions for the user's actual draft above. Respond ONLY with the JSON object.`;
 
   if (!process.env.OPENAI_API_KEY) {
     const fallback = {
@@ -210,46 +225,70 @@ export async function generateThoughtPartnerOutput(params: {
   systemPrompt: string;
   userPrompt: string;
 }> {
-  const systemPrompt = `You are a reflective thinking assistant. The user is about to write a message to a close friend named Alex. Before they write, help them think through what they want to say by asking reflective questions.
+  const systemPrompt = `You are a reflective writing assistant. The user is about to write a message to a close friend. Before they write, help them think through what they want to say by asking reflective questions.
 
-Generate exactly 4 reflective questions, one for each dimension below. Each question should be grounded in what the user shared — reference specific details from their bullet points when possible.
+The user described the situation in bullet points. Generate exactly 4 reflective questions, one for each dimension below. Each question should be grounded in what the user shared and reference specific details from their bullet points.
 
-Dimensions (ask in this exact order):
-1. Own feelings — Help the user identify what they are feeling about this situation
-2. Recipient's perspective — Help the user consider how Alex might be feeling or experiencing the situation
-3. Communication intent — Help the user clarify what they want Alex to feel or understand after reading the message
-4. Relational context — Help the user reflect on why this situation matters for the friendship
+Dimensions (ask in this order):
+1. Own feelings: Help the user identify what they are feeling about this situation.
+2. Recipient's perspective: Help the user consider how the recipient might be feeling or experiencing the situation.
+3. Communication intent: Help the user clarify what they want the recipient to feel or understand after reading the message.
+4. Relational context: Help the user reflect on why this matters for the relationship.
 
 Rules:
 - Ask ONE question per dimension
-- Each question must be open-ended (not yes/no)
-- Keep questions short and conversational (under 25 words each)
+- Each question should be open-ended (not yes/no)
+- Keep questions short and conversational (under 25 words)
 - Do NOT give advice, suggestions, or opinions
 - Do NOT reference the message they will write — focus only on their thoughts and feelings
-- Do NOT tell the user what they should feel or what Alex might feel — ask them to explore it
-- Do NOT propose wording, strategies, or next steps
-- Do NOT moralize, diagnose, reassure, or steer the user toward reconciliation, confrontation, apology, gratitude, or any specific stance
-- If the bullet points are vague or lack detail, ask questions that help the user surface the specifics themselves rather than assuming details
+- If the bullet points are vague, ask questions that help the user surface the specifics themselves
 
-Return strict JSON matching this exact schema:
-{"reflectiveQuestions":["...","...","...","..."]}`;
+Respond in this exact JSON format:
+[
+  {
+    "dimension": "Own feelings",
+    "question": "<your question>"
+  },
+  {
+    "dimension": "Recipient's perspective",
+    "question": "<your question>"
+  },
+  {
+    "dimension": "Communication intent",
+    "question": "<your question>"
+  },
+  {
+    "dimension": "Relational context",
+    "question": "<your question>"
+  }
+]`;
 
   const userPrompt = `The user described the situation:
 """
 ${params.bullets.map((b, i) => `${i + 1}. ${b.trim()}`).join("\n")}
 """
 
-Generate reflective questions based on what the user shared. Respond ONLY with the JSON object.`;
+Generate reflective questions based on what the user shared. Respond ONLY with the JSON array.`;
 
   if (!process.env.OPENAI_API_KEY) {
-    const fallback = {
-      reflectiveQuestions: [
-        "What are you feeling about this situation right now?",
-        "How do you think Alex might be experiencing this?",
-        "What do you most want Alex to feel or understand after reading your message?",
-        "Why does this situation matter for your relationship with Alex?"
-      ]
-    };
+    const fallback = [
+      {
+        dimension: "Own feelings" as const,
+        question: "What emotions are strongest for you in this situation right now?"
+      },
+      {
+        dimension: "Recipient's perspective" as const,
+        question: "How might the other person be experiencing what happened from their side?"
+      },
+      {
+        dimension: "Communication intent" as const,
+        question: "What do you most want them to feel or understand after hearing from you?"
+      },
+      {
+        dimension: "Relational context" as const,
+        question: "Why does this situation matter for your relationship with them?"
+      }
+    ];
 
     return {
       parsed: thoughtPartnerOutputSchema.parse(fallback),

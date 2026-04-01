@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { getConditionDisplayLabel } from "@/lib/conditionLabels";
 import { visibleSurveyItems as filterVisibleSurveyItems } from "@/lib/surveyItems";
 import type { RoleCondition, SurveyItem, SurveyTemplate } from "@/lib/types";
 import Link from "next/link";
@@ -193,7 +194,7 @@ export function ResearcherSurveyArea() {
         <CardHeader>
           <CardTitle>Survey Area</CardTitle>
           <CardDescription>
-            Edit per-condition and post-study templates, preview participant view, and export survey data.
+            Edit per-condition and post-study templates and preview participant view.
           </CardDescription>
         </CardHeader>
 
@@ -201,22 +202,6 @@ export function ResearcherSurveyArea() {
           <Link className={buttonVariants({ variant: "outline" })} href="/researcher">
             Back To Participant Dash
           </Link>
-          <a
-            className={buttonVariants({ variant: "outline" })}
-            href="/api/researcher/export/surveys-csv"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Export Survey CSV
-          </a>
-          <a
-            className={buttonVariants({ variant: "outline" })}
-            href="/api/researcher/export"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Export Full JSON
-          </a>
         </CardContent>
       </Card>
 
@@ -310,9 +295,9 @@ export function ResearcherSurveyArea() {
                             }
                           >
                             <option value="all">all</option>
-                            <option value="thought_partner">thought_partner</option>
-                            <option value="editor">editor</option>
-                            <option value="ghost_writer">ghost_writer</option>
+                            <option value="thought_partner">{getConditionDisplayLabel("thought_partner")} (thought_partner)</option>
+                            <option value="editor">{getConditionDisplayLabel("editor")} (editor)</option>
+                            <option value="ghost_writer">{getConditionDisplayLabel("ghost_writer")} (ghost_writer)</option>
                           </Select>
                         </Label>
 
@@ -486,9 +471,9 @@ export function ResearcherSurveyArea() {
                   value={previewCondition}
                   onChange={(event) => setPreviewCondition(event.target.value as RoleCondition)}
                 >
-                  <option value="thought_partner">Thought Partner</option>
-                  <option value="editor">Editor</option>
-                  <option value="ghost_writer">Ghost-writer</option>
+                  <option value="thought_partner">{getConditionDisplayLabel("thought_partner")}</option>
+                  <option value="editor">{getConditionDisplayLabel("editor")}</option>
+                  <option value="ghost_writer">{getConditionDisplayLabel("ghost_writer")}</option>
                 </Select>
               </Label>
 

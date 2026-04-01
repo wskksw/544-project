@@ -25,14 +25,15 @@ flowchart TD
     S1 --> S2[Edit items type prompt required condition logic]
     S2 --> S3[PUT /api/researcher/surveys]
     C1 --> S4[Survey preview participant-facing question UI]
-    C1 --> S5[Export survey response CSV]
+    C1 --> S5[Edit and preview surveys]
 
     A --> P1[Optional playground /researcher/playground]
     P1 --> P2[POST /api/researcher/playground]
 
-    A --> X1[Export participant CSV]
-    C1 --> X1b[Export full JSON]
-    X1 --> X3[GET /api/researcher/export/participants-csv]
-    X1b --> X2[GET /api/researcher/export]
-    S5 --> X4[GET /api/researcher/export/surveys-csv]
+    A --> X1[Export procedural CSV]
+    A --> X1b[Export survey CSV]
+    A --> X2[Export all data JSON]
+    X1 --> X3[GET /api/researcher/export/procedural-csv]
+    X1b --> X4[GET /api/researcher/export/surveys-csv]
+    X2 --> X5[GET /api/researcher/export]
 ```

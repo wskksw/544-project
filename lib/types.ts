@@ -3,6 +3,7 @@ export type RoleCondition = "thought_partner" | "editor" | "ghost_writer";
 export type SessionStatus = "active" | "completed";
 
 export type StudyState =
+  | "pre_survey"
   | "practice_intro"
   | "practice_task"
   | "practice_survey"
@@ -23,7 +24,7 @@ export type Scenario = {
   id: string;
   title: string;
   description: string;
-  requiredElements: string[];
+  requiredElements?: string[];
 };
 
 export type TrialPlan = {

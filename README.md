@@ -72,7 +72,9 @@ Per-condition items can optionally be filtered by condition (`all`, `thought_par
 SQLite file:
 - `data/aimc.sqlite`
 
-Export endpoint:
+Export endpoints:
+- `GET /api/researcher/export/procedural-csv`
+- `GET /api/researcher/export/surveys-csv`
 - `GET /api/researcher/export`
 
 Tables include:

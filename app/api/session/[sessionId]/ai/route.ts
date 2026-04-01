@@ -215,7 +215,10 @@ export async function POST(
       payload: { action: body.action, aiCallId: result.lastInsertRowid }
     });
 
-    return NextResponse.json({ thoughtPartner: parsed, aiCallId: result.lastInsertRowid });
+    return NextResponse.json({
+      thoughtPartner: { reflectiveQuestions: parsed },
+      aiCallId: result.lastInsertRowid
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 400 });

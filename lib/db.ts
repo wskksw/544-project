@@ -34,6 +34,7 @@ DROP TABLE IF EXISTS trial_plan;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS assignments;
 DROP TABLE IF EXISTS participants;
+DROP TABLE IF EXISTS pre_study_surveys;
 DROP TABLE IF EXISTS survey_templates;
 `);
 
@@ -130,6 +131,14 @@ CREATE TABLE thought_partner_reflections (
   FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 
+CREATE TABLE pre_study_surveys (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL UNIQUE,
+  responses_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+
 CREATE TABLE surveys (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT NOT NULL,
@@ -174,6 +183,18 @@ CREATE TABLE trial_metrics (
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
 
+function ensureIncrementalTables(): void {
+  db.exec(`
+CREATE TABLE IF NOT EXISTS pre_study_surveys (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL UNIQUE,
+  responses_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+`);
+}
+
 const currentVersion = db.pragma("user_version", { simple: true }) as number;
 const requiredTables = [
   "participants",
@@ -194,5 +215,7 @@ const hasAllRequiredTables = requiredTables.every((table) => tableExists(table))
 if (currentVersion !== SCHEMA_VERSION || !hasAllRequiredTables) {
   recreateSchema();
 }
+
+ensureIncrementalTables();
 
 export { db };

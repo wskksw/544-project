@@ -4,6 +4,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { getConditionDisplayLabel } from "@/lib/conditionLabels";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -50,9 +51,9 @@ export default function PlaygroundPage() {
           <Label>
             Condition
             <Select value={condition} onChange={(event) => setCondition(event.target.value)}>
-              <option value="thought_partner">Thought Partner</option>
-              <option value="editor">Editor</option>
-              <option value="ghost_writer">Ghost-writer</option>
+              <option value="thought_partner">{getConditionDisplayLabel("thought_partner")}</option>
+              <option value="editor">{getConditionDisplayLabel("editor")}</option>
+              <option value="ghost_writer">{getConditionDisplayLabel("ghost_writer")}</option>
             </Select>
           </Label>
 

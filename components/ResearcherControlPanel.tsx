@@ -12,10 +12,12 @@ import {
   TableHeaderCell,
   TableRow
 } from "@/components/ui/table";
+import { getConditionDisplayLabel } from "@/lib/conditionLabels";
+import type { RoleCondition } from "@/lib/types";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-type Condition = "thought_partner" | "editor" | "ghost_writer";
+type Condition = RoleCondition;
 
 type MatrixParticipant = {
   participantId: string;
@@ -44,7 +46,7 @@ type MatrixCell = {
 type AssignmentPayload = {
   cells: MatrixCell[];
   sessions: Array<Record<string, unknown>>;
-  lockedTargetN: number | null;
+  currentTargetN: number | null;
 };
 
 type PopulateResponse = {
@@ -53,17 +55,6 @@ type PopulateResponse = {
   created: number;
   total: number;
 };
-
-function conditionLabel(condition: Condition): string {
-  switch (condition) {
-    case "thought_partner":
-      return "Thought Partner";
-    case "editor":
-      return "Editor";
-    case "ghost_writer":
-      return "Ghost-writer";
-  }
-}
 
 function scenarioLabel(scenarioId: string): string {
   switch (scenarioId) {
@@ -83,6 +74,8 @@ export function ResearcherControlPanel() {
   const [message, setMessage] = useState("");
   const [labelDrafts, setLabelDrafts] = useState<Record<string, string>>({});
   const [savingLabelId, setSavingLabelId] = useState<string | null>(null);
+  const [restartingParticipantId, setRestartingParticipantId] = useState<string | null>(null);
+  const [resettingAll, setResettingAll] = useState(false);
   const [data, setData] = useState<AssignmentPayload | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -97,10 +90,10 @@ export function ResearcherControlPanel() {
   }, []);
 
   useEffect(() => {
-    if (data?.lockedTargetN) {
-      setTargetN(String(data.lockedTargetN));
+    if (data?.currentTargetN) {
+      setTargetN(String(data.currentTargetN));
     }
-  }, [data?.lockedTargetN]);
+  }, [data?.currentTargetN]);
 
   const quotaHint = useMemo(() => {
     const parsed = Number(targetN);
@@ -190,26 +183,93 @@ export function ResearcherControlPanel() {
     }
   }
 
+  async function restartParticipantAtPreSurvey(participantId: string): Promise<void> {
+    setRestartingParticipantId(participantId);
+    setMessage("");
+
+    try {
+      const response = await fetch(`/api/researcher/participants/${participantId}/restart-session`, {
+        method: "POST"
+      });
+      const json = (await response.json()) as {
+        accessCode?: string;
+        participantLabel?: string;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(json.error ?? "Failed to restart participant session");
+      }
+
+      await loadAssignments();
+
+      if (json.accessCode) {
+        window.open(`/study/${json.accessCode}`, "_blank", "noopener,noreferrer");
+      }
+
+      setMessage(
+        `Session restarted for ${json.participantLabel ?? "participant"}. A new tab should open at pre-survey.`
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setRestartingParticipantId(null);
+    }
+  }
+
+  async function wipeAllData(): Promise<void> {
+    const confirmed = window.confirm(
+      "This will permanently delete all participants and all related sessions, trial data, logs, and survey responses. Continue?"
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setResettingAll(true);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/researcher/reset", { method: "DELETE" });
+      const json = (await response.json()) as {
+        deletedParticipants?: number;
+        deletedAssignments?: number;
+        deletedSessions?: number;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(json.error ?? "Failed to wipe participant data");
+      }
+
+      setMessage(
+        `Deleted ${json.deletedParticipants ?? 0} participants, ${json.deletedAssignments ?? 0} assignments, and ${json.deletedSessions ?? 0} sessions.`
+      );
+      await loadAssignments();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setResettingAll(false);
+    }
+  }
+
   return (
     <div className="layout-grid">
       <Card>
         <CardHeader>
           <CardTitle>Participant Dash</CardTitle>
           <CardDescription>
-            Set target N, generate participants, monitor balancing, and export participant-level data.
+            Set target N, generate participants, monitor balancing, and export study data.
           </CardDescription>
         </CardHeader>
 
         <CardContent className="stack-md">
           <Label style={{ maxWidth: 220 }}>
             Target N
-            <Input value={targetN} onChange={(event) => setTargetN(event.target.value)} disabled={Boolean(data?.lockedTargetN)} />
+            <Input value={targetN} onChange={(event) => setTargetN(event.target.value)} />
           </Label>
 
           <p className="text-muted">{quotaHint}</p>
           <p className="text-muted">
-            {data?.lockedTargetN
-              ? `Target N is locked at ${data.lockedTargetN} after first registration.`
+            {data?.currentTargetN
+              ? `Current target N: ${data.currentTargetN}. You can raise or adjust it (must be a multiple of 3 and not below current enrollment).`
               : "Set target N, then generate access codes. Auto-assignment uses the least-filled cell."}
           </p>
 
@@ -220,13 +280,32 @@ export function ResearcherControlPanel() {
             <Button variant="outline" onClick={() => void loadAssignments()}>
               Refresh
             </Button>
+            <Button variant="destructive" disabled={resettingAll} onClick={() => void wipeAllData()}>
+              Wipe All Participant Data
+            </Button>
             <a
               className={buttonVariants({ variant: "outline" })}
-              href="/api/researcher/export/participants-csv"
+              href="/api/researcher/export/procedural-csv"
               target="_blank"
               rel="noreferrer"
             >
-              Export Participants CSV
+              Export Procedural CSV
+            </a>
+            <a
+              className={buttonVariants({ variant: "outline" })}
+              href="/api/researcher/export/surveys-csv"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Export Survey CSV
+            </a>
+            <a
+              className={buttonVariants({ variant: "outline" })}
+              href="/api/researcher/export"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Export All Data JSON
             </a>
             <Link className={buttonVariants({ variant: "outline" })} href="/researcher/playground">
               Open Condition Playground
@@ -235,6 +314,10 @@ export function ResearcherControlPanel() {
               Go To Survey Area
             </Link>
           </div>
+
+          <p className="text-muted">
+            Procedural CSV: trial-level process metrics. Survey CSV: per-condition and post-study responses. All Data JSON: full raw snapshot.
+          </p>
 
           {message ? <p className="text-warning">{message}</p> : null}
         </CardContent>
@@ -256,7 +339,7 @@ export function ResearcherControlPanel() {
                 <span>
                   Sequence:{" "}
                   {cell.trialSpecs
-                    .map((trial) => `${conditionLabel(trial.condition)} / ${scenarioLabel(trial.scenarioId)}`)
+                    .map((trial) => `${getConditionDisplayLabel(trial.condition)} / ${scenarioLabel(trial.scenarioId)}`)
                     .join(" -> ")}
                 </span>
                 <span>Filled: {cell.count}</span>
@@ -279,6 +362,7 @@ export function ResearcherControlPanel() {
                 <TableHeaderCell>Cell</TableHeaderCell>
                 <TableHeaderCell>Progress</TableHeaderCell>
                 <TableHeaderCell>Completed</TableHeaderCell>
+                <TableHeaderCell>Restart</TableHeaderCell>
                 <TableHeaderCell>Open</TableHeaderCell>
               </TableRow>
             </TableHead>
@@ -316,6 +400,16 @@ export function ResearcherControlPanel() {
                       </TableCell>
                       <TableCell>{participant.sessionStatus === "completed" ? "Yes" : "No"}</TableCell>
                       <TableCell>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={restartingParticipantId === participant.participantId}
+                          onClick={() => void restartParticipantAtPreSurvey(participant.participantId)}
+                        >
+                          Restart at Pre-Survey
+                        </Button>
+                      </TableCell>
+                      <TableCell>
                         <Link className={buttonVariants({ variant: "link" })} href={`/study/${participant.accessCode}`}>
                           Participant
                         </Link>
@@ -324,7 +418,7 @@ export function ResearcherControlPanel() {
                   ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6}>No participants yet.</TableCell>
+                  <TableCell colSpan={7}>No participants yet.</TableCell>
                 </TableRow>
               )}
             </TableBody>

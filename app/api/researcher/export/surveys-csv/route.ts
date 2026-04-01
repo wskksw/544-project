@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 
 type SurveyExportRow = {
-  survey_type: "per_condition" | "post_study";
+  survey_type: "pre_study" | "per_condition" | "post_study";
   session_id: string;
   participant_id: string;
   participant_label: string;
@@ -16,6 +16,29 @@ type SurveyExportRow = {
 };
 
 export async function GET(): Promise<NextResponse> {
+  const preStudyRows = db
+    .prepare(
+      `
+      SELECT
+        'pre_study' AS survey_type,
+        prs.session_id,
+        p.id AS participant_id,
+        p.participant_label,
+        p.access_code,
+        NULL AS trial_index,
+        NULL AS condition,
+        NULL AS scenario_id,
+        prs.responses_json,
+        prs.created_at
+      FROM pre_study_surveys prs
+      JOIN sessions s ON s.id = prs.session_id
+      JOIN participants p ON p.id = s.participant_id
+      WHERE s.is_playground = 0
+      ORDER BY prs.created_at ASC
+      `
+    )
+    .all() as SurveyExportRow[];
+
   const perConditionRows = db
     .prepare(
       `
@@ -63,7 +86,7 @@ export async function GET(): Promise<NextResponse> {
     )
     .all() as SurveyExportRow[];
 
-  const rows = [...perConditionRows, ...postStudyRows].sort((a, b) =>
+  const rows = [...preStudyRows, ...perConditionRows, ...postStudyRows].sort((a, b) =>
     a.created_at.localeCompare(b.created_at)
   );
 

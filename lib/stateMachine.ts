@@ -2,6 +2,7 @@ import type { RoleCondition, StudyState } from "@/lib/types";
 
 const conditionTransitions: Record<RoleCondition, Record<StudyState, StudyState[]>> = {
   ghost_writer: {
+    pre_survey: ["practice_intro"],
     practice_intro: ["practice_task"],
     practice_task: ["practice_survey"],
     practice_survey: [],
@@ -19,6 +20,7 @@ const conditionTransitions: Record<RoleCondition, Record<StudyState, StudyState[
     post_study_survey: []
   },
   editor: {
+    pre_survey: ["practice_intro"],
     practice_intro: ["practice_task"],
     practice_task: ["practice_survey"],
     practice_survey: [],
@@ -36,6 +38,7 @@ const conditionTransitions: Record<RoleCondition, Record<StudyState, StudyState[
     post_study_survey: []
   },
   thought_partner: {
+    pre_survey: ["practice_intro"],
     practice_intro: ["practice_task"],
     practice_task: ["practice_survey"],
     practice_survey: [],
@@ -43,7 +46,7 @@ const conditionTransitions: Record<RoleCondition, Record<StudyState, StudyState[
     bullet_input: ["reflection_questions"],
     reflection_questions: ["reflection_summary"],
     reflection_summary: ["independent_drafting"],
-    independent_drafting: ["final_edit"],
+    independent_drafting: ["final_edit", "post_condition_survey"],
     final_edit: ["post_condition_survey"],
     post_condition_survey: ["inter_condition_buffer"],
     human_drafting: [],
@@ -59,7 +62,7 @@ export function canTransition(condition: RoleCondition, from: StudyState, to: St
 }
 
 export function getInitialState(): StudyState {
-  return "practice_intro";
+  return "pre_survey";
 }
 
 export function getStateSequenceForCondition(condition: RoleCondition): StudyState[] {
@@ -77,7 +80,6 @@ export function getStateSequenceForCondition(condition: RoleCondition): StudySta
     "reflection_questions",
     "reflection_summary",
     "independent_drafting",
-    "final_edit",
     "post_condition_survey"
   ];
 }

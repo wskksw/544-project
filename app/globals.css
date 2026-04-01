@@ -406,6 +406,79 @@ ul {
   gap: 1rem;
 }
 
+.editor-locked-shell {
+  position: relative;
+  min-height: 260px;
+  border: 1px solid var(--input);
+  border-radius: calc(var(--radius) - 0.25rem);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.9), rgb(255 255 255 / 0.82)),
+    repeating-linear-gradient(135deg, rgb(209 213 219 / 0.2) 0px, rgb(209 213 219 / 0.2) 10px, transparent 10px, transparent 20px);
+  overflow: hidden;
+}
+
+.editor-locked-banner {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  z-index: 1;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.92);
+  color: #374151;
+  font-size: 0.8rem;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+.editor-locked-preview {
+  min-height: 260px;
+  padding: 1rem;
+  white-space: pre-wrap;
+  line-height: 1.5;
+  color: var(--foreground);
+}
+
+.editor-locked-message {
+  margin: 0 0 0.9rem;
+  max-width: 42rem;
+  color: #374151;
+  font-weight: 600;
+}
+
+.editor-locked-content {
+  white-space: pre-wrap;
+}
+
+.editor-locked-placeholder {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.editor-locked-status {
+  margin: 0.85rem 0 0;
+  color: #374151;
+  font-size: 0.9rem;
+}
+
+.editor-highlight {
+  padding: 0.02rem 0.1rem;
+  border-radius: 0.28rem;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.editor-highlight-accept {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.editor-highlight-modify {
+  background: #fed7aa;
+  color: #9a3412;
+}
+
 /* Legacy compatibility for screens not yet fully componentized. */
 .card {
   border: 1px solid var(--border);
@@ -426,6 +499,75 @@ ul {
   font-weight: 520;
   background: var(--secondary);
   color: var(--secondary-foreground);
+}
+
+.ai-status-card {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #bfd2ff;
+  border-radius: calc(var(--radius) - 0.1rem);
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 0.98), rgb(236 243 255 / 0.96)),
+    linear-gradient(90deg, rgb(31 111 235 / 0.06), transparent 55%);
+  box-shadow: 0 10px 24px rgb(31 111 235 / 0.08);
+}
+
+.ai-status-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #31538c;
+}
+
+.ai-status-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 0 rgb(31 111 235 / 0.28);
+  animation: ai-status-pulse 1.4s ease-out infinite;
+}
+
+.ai-status-title {
+  font-weight: 650;
+  color: #102345;
+}
+
+.ai-status-detail {
+  color: #42526a;
+  line-height: 1.45;
+}
+
+.ai-status-bars {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.15rem;
+}
+
+.ai-status-bar {
+  display: block;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d5e5ff 0%, #eef4ff 50%, #d5e5ff 100%);
+  background-size: 200% 100%;
+  animation: ai-status-shimmer 1.3s linear infinite;
+}
+
+.ai-status-bar-short {
+  width: 38%;
+}
+
+.ai-status-bar-medium {
+  width: 64%;
+}
+
+.ai-status-bar-long {
+  width: 82%;
 }
 
 button {
@@ -478,6 +620,33 @@ td {
   border-bottom: 1px solid var(--border);
   padding: 0.48rem;
   vertical-align: top;
+}
+
+@keyframes ai-status-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgb(31 111 235 / 0.28);
+  }
+
+  70% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 10px rgb(31 111 235 / 0);
+  }
+
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgb(31 111 235 / 0);
+  }
+}
+
+@keyframes ai-status-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 @media (min-width: 980px) {

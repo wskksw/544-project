@@ -4,6 +4,7 @@ import { z } from "zod";
 
 const bodySchema = z.object({
   toState: z.enum([
+    "pre_survey",
     "practice_intro",
     "practice_task",
     "practice_survey",

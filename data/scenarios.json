@@ -2,34 +2,16 @@
   {
     "id": "scenario_a",
     "title": "Repairing Trust After Letting Someone Down",
-    "description": "Your close friend Alex recently went through a difficult time — they were moving to a new apartment while dealing with a stressful period at work. Alex asked you weeks in advance if you could help them move on Saturday, and you agreed. But when Saturday came, you had completely forgotten — you had made other plans with another group of friends and didn't realize the conflict until Alex texted you that morning asking what time you'd arrive. You apologized briefly by text and said you couldn't make it. Alex responded, \"It's fine,\" but you could tell it wasn't. It's been five days, and Alex hasn't reached out since. You've heard from a mutual friend that Alex ended up moving mostly alone. You feel like your earlier apology was inadequate, and you want to reach out again — but you're worried that another text apology might come across as hollow or just something you're doing to make yourself feel better. You want to send Alex a message.\n\nWrite a message you would actually send via text or messaging app. Aim for roughly 80–150 words.",
-    "requiredElements": [
-      "Acknowledge what happened clearly",
-      "Show understanding of how it likely affected Alex",
-      "Convey genuine remorse without sounding performative",
-      "Include a concrete step toward making things right"
-    ]
+    "description": "Your close friend Alex recently went through a difficult time — they were moving to a new apartment while dealing with a stressful period at work. Alex asked you weeks in advance if you could help them move on Saturday, and you agreed. But when Saturday came, you had completely forgotten — you had made other plans with another group of friends and didn't realize the conflict until Alex texted you that morning asking what time you'd arrive. You apologized briefly by text and said you couldn't make it. Alex responded, \"It's fine,\" but you could tell it wasn't. It's been five days, and Alex hasn't reached out since. You've heard from a mutual friend that Alex ended up moving mostly alone. You feel like your earlier apology was inadequate, and you want to reach out again — but you're worried that another text apology might come across as hollow or just something you're doing to make yourself feel better. You want to send Alex a message."
   },
   {
     "id": "scenario_b",
     "title": "Expressing Gratitude While Making a Difficult Request",
-    "description": "Your close friend Alex helped you get through a really difficult period a few months ago. When you were going through a rough time after a bad breakup, Alex checked in on you almost every day, brought you food, and even rearranged their own schedule to spend time with you. You never properly thanked them for all of that — you kept meaning to but the moment never felt right, and now months have passed. Recently, you found out that Alex has a connection at a company you're trying to get a job at. You'd really like to ask Alex to put in a good word or introduce you, but you feel awkward asking for another favor when you haven't even properly acknowledged what they already did for you. You want to send Alex a message.\n\nWrite a message you would actually send via text or messaging app. Aim for roughly 80–150 words.",
-    "requiredElements": [
-      "Express specific gratitude for Alex's recent support",
-      "Make the request clearly and respectfully",
-      "Show awareness that the ask may feel awkward given the context",
-      "Leave room for Alex to say no without pressure"
-    ]
+    "description": "Your close friend Jordan helped you get through a really difficult period a few months ago. When you were going through a rough time after a bad breakup, Jordan checked in on you almost every day, brought you food, and even rearranged their own schedule to spend time with you. You never properly thanked them for all of that — you kept meaning to but the moment never felt right, and now months have passed. Recently, you found out that Jordan has a connection at a company you're trying to get a job at. You'd really like to ask Jordan to put in a good word or introduce you, but you feel awkward asking for another favor when you haven't even properly acknowledged what they already did for you. You want to send Jordan a message."
   },
   {
     "id": "scenario_c",
     "title": "Expressing Honest Concern Without Damaging the Friendship",
-    "description": "Your close friend Alex has been dating someone new for about two months. You've met their partner a few times, and each time you noticed some things that concerned you — their partner often made dismissive comments about Alex's opinions in group settings, and last week, Alex cancelled plans with you last minute saying their partner \"didn't want them going out.\" You've also noticed Alex has been less like themselves lately — quieter, more apologetic, less spontaneous. You're not sure if you're reading too much into it, but you're genuinely worried. You want to say something but you're afraid Alex might get defensive or feel judged. You want to send Alex a message.\n\nWrite a message you would actually send via text or messaging app. Aim for roughly 80–150 words.",
-    "requiredElements": [
-      "Name the specific behaviors or changes you've noticed",
-      "Communicate care and concern, not judgment",
-      "Acknowledge that you might be wrong or reading too much into it",
-      "Invite a conversation rather than trying to control the outcome"
-    ]
+    "description": "Your close friend Riley has been dating someone new for about two months. You've met their partner a few times, and each time you noticed some things that concerned you — their partner often made dismissive comments about Riley's opinions in group settings, and last week, Riley cancelled plans with you last minute saying their partner \"didn't want them going out.\" You've also noticed Riley has seemed quieter lately. You're not sure if you're reading too much into it, but you're genuinely worried. You want to say something but you're afraid Riley might get defensive or feel judged. You want to send Riley a message."
   }
 ]

@@ -55,12 +55,12 @@ function assertTargetN(targetN: number): void {
   }
 }
 
-function getTargetNLockInfo(): { count: number; distinctCount: number; lockedTargetN: number | null } {
+function getTargetNInfo(): { count: number; distinctCount: number; currentTargetN: number | null } {
   return db
     .prepare(
-      "SELECT COUNT(*) as count, COUNT(DISTINCT target_n) as distinctCount, MIN(target_n) as lockedTargetN FROM assignments"
+      "SELECT COUNT(*) as count, COUNT(DISTINCT target_n) as distinctCount, MIN(target_n) as currentTargetN FROM assignments"
     )
-    .get() as { count: number; distinctCount: number; lockedTargetN: number | null };
+    .get() as { count: number; distinctCount: number; currentTargetN: number | null };
 }
 
 function buildTrials(cell: AssignmentCell): TrialPlan[] {
@@ -99,7 +99,7 @@ function generateUniqueAccessCode(): string {
 function createSessionInternal(participantId: string, trials: TrialPlan[], isPlayground: boolean): string {
   const sessionId = randomUUID();
   const createdAt = nowIso();
-  const initialState: StudyState = isPlayground ? "scenario_intro" : "practice_intro";
+  const initialState: StudyState = isPlayground ? "scenario_intro" : "pre_survey";
 
   db.prepare(
     `
@@ -173,8 +173,8 @@ function persistTrialMetrics(params: {
   const suggestionRows =
     params.condition === "editor"
       ? (db
-          .prepare("SELECT action_status FROM editor_suggestions es JOIN ai_calls ac ON ac.id = es.ai_call_id WHERE ac.session_id = ? AND ac.trial_index = ?")
-          .all(params.sessionId, params.trialIndex) as Array<{ action_status: string }>)
+        .prepare("SELECT action_status FROM editor_suggestions es JOIN ai_calls ac ON ac.id = es.ai_call_id WHERE ac.session_id = ? AND ac.trial_index = ?")
+        .all(params.sessionId, params.trialIndex) as Array<{ action_status: string }>)
       : [];
 
   const acceptedSuggestions = suggestionRows.filter((row) => row.action_status === "accept").length;
@@ -220,22 +220,28 @@ export function registerParticipant(params: {
   const participantLabel = (params.participantLabel ?? "").trim() || `Participant ${randomCodeSegment(3)}`;
 
   return db.transaction(() => {
-    const lockRow = getTargetNLockInfo();
-    if (lockRow.distinctCount > 1) {
+    const targetInfo = getTargetNInfo();
+    if (targetInfo.distinctCount > 1) {
       throw new Error("Inconsistent target N values detected in assignments. Reset data before continuing.");
     }
 
-    const lockedTargetN = lockRow.count > 0 ? lockRow.lockedTargetN : null;
-    const targetN = params.targetN ?? lockedTargetN ?? DEFAULT_TARGET_N;
+    const currentTargetN = targetInfo.count > 0 ? targetInfo.currentTargetN : null;
+    const targetN = params.targetN ?? currentTargetN ?? DEFAULT_TARGET_N;
     assertTargetN(targetN);
 
-    if (lockedTargetN !== null && targetN !== lockedTargetN) {
-      throw new Error(`Target N is locked at ${lockedTargetN} for this study.`);
+    if (targetInfo.count > targetN) {
+      throw new Error(
+        `Current participant count (${targetInfo.count}) exceeds target N (${targetN}). Increase target N or reset data.`
+      );
+    }
+
+    if (currentTargetN !== null && targetN !== currentTargetN) {
+      db.prepare("UPDATE assignments SET target_n = ?").run(targetN);
     }
 
     const counts = db
-      .prepare("SELECT cell_id as cellId, COUNT(*) as count FROM assignments WHERE target_n = ? GROUP BY cell_id")
-      .all(targetN) as Array<{ cellId: string; count: number }>;
+      .prepare("SELECT cell_id as cellId, COUNT(*) as count FROM assignments GROUP BY cell_id")
+      .all() as Array<{ cellId: string; count: number }>;
 
     const countMap = new Map<string, number>();
     for (const row of counts) {
@@ -298,23 +304,23 @@ export function populateParticipantsToTargetN(params: { targetN?: number }): {
     sessionId: string;
   }>;
 } {
-  const lockRow = getTargetNLockInfo();
-  if (lockRow.distinctCount > 1) {
+  const targetInfo = getTargetNInfo();
+  if (targetInfo.distinctCount > 1) {
     throw new Error("Inconsistent target N values detected in assignments. Reset data before continuing.");
   }
 
-  const lockedTargetN = lockRow.count > 0 ? lockRow.lockedTargetN : null;
-  const targetN = params.targetN ?? lockedTargetN ?? DEFAULT_TARGET_N;
+  const currentTargetN = targetInfo.count > 0 ? targetInfo.currentTargetN : null;
+  const targetN = params.targetN ?? currentTargetN ?? DEFAULT_TARGET_N;
   assertTargetN(targetN);
 
-  if (lockedTargetN !== null && targetN !== lockedTargetN) {
-    throw new Error(`Target N is locked at ${lockedTargetN} for this study.`);
+  if (currentTargetN !== null && targetN !== currentTargetN) {
+    db.prepare("UPDATE assignments SET target_n = ?").run(targetN);
   }
 
-  const existing = lockRow.count;
+  const existing = targetInfo.count;
   if (existing > targetN) {
     throw new Error(
-      `Current participant count (${existing}) already exceeds target N (${targetN}). Reset data to change target.`
+      `Current participant count (${existing}) already exceeds target N (${targetN}). Increase target N or reset data.`
     );
   }
 
@@ -377,6 +383,80 @@ export function updateParticipantLabel(params: {
     participantLabel: row.participant_label,
     accessCode: row.access_code
   };
+}
+
+export function restartParticipantSession(params: {
+  participantId: string;
+}): { sessionId: string; participantId: string; participantLabel: string; accessCode: string } {
+  const participantId = params.participantId.trim();
+  if (!participantId) {
+    throw new Error("Participant ID is required.");
+  }
+
+  return db.transaction(() => {
+    const participant = db
+      .prepare("SELECT id, participant_label, access_code FROM participants WHERE id = ?")
+      .get(participantId) as { id: string; participant_label: string; access_code: string } | undefined;
+
+    if (!participant) {
+      throw new Error("Participant not found.");
+    }
+
+    const assignment = db
+      .prepare("SELECT cell_id FROM assignments WHERE participant_id = ?")
+      .get(participantId) as { cell_id: string } | undefined;
+
+    if (!assignment) {
+      throw new Error("Assignment not found for participant.");
+    }
+
+    const cell = getCounterbalanceCells().find((entry) => entry.cellId === assignment.cell_id);
+    if (!cell) {
+      throw new Error("Assigned counterbalance cell is invalid.");
+    }
+
+    const now = nowIso();
+    db.prepare("UPDATE sessions SET status = 'completed', updated_at = ? WHERE participant_id = ? AND is_playground = 0 AND status = 'active'").run(
+      now,
+      participantId
+    );
+
+    const sessionId = createSessionInternal(participantId, buildTrials(cell), false);
+
+    logEvent({
+      sessionId,
+      trialIndex: null,
+      eventType: "participant_session_restarted",
+      payload: { participantId },
+      timestamp: nowIso()
+    });
+
+    return {
+      sessionId,
+      participantId: participant.id,
+      participantLabel: participant.participant_label,
+      accessCode: participant.access_code
+    };
+  })();
+}
+
+export function wipeAllParticipantData(): {
+  deletedParticipants: number;
+  deletedAssignments: number;
+  deletedSessions: number;
+} {
+  return db.transaction(() => {
+    const counts = {
+      deletedParticipants: (db.prepare("SELECT COUNT(*) as count FROM participants").get() as { count: number }).count,
+      deletedAssignments: (db.prepare("SELECT COUNT(*) as count FROM assignments").get() as { count: number }).count,
+      deletedSessions: (db.prepare("SELECT COUNT(*) as count FROM sessions").get() as { count: number }).count
+    };
+
+    // Deleting participants cascades into assignments, sessions, trial data, events, and surveys.
+    db.prepare("DELETE FROM participants").run();
+
+    return counts;
+  })();
 }
 
 export function createPlaygroundSession(params: {
@@ -587,109 +667,109 @@ export function submitTrial(params: {
       const session = snapshot.session;
       const trial = snapshot.currentTrial;
 
-    if (session.status !== "active") {
-      throw new Error("Session already completed.");
-    }
-    if (session.current_state !== "post_condition_survey") {
-      throw new Error("Session must be in post_condition_survey before submit.");
-    }
-
-    const timestamp = nowIso();
-
-    db.prepare("INSERT INTO surveys (session_id, trial_index, responses_json, created_at) VALUES (?, ?, ?, ?)").run(
-      params.sessionId,
-      trial.trial_index,
-      JSON.stringify(params.surveyResponses),
-      timestamp
-    );
-
-    if (params.thoughtPartnerResponses?.length) {
-      const insertReflection = db.prepare(
-        "INSERT INTO thought_partner_reflections (session_id, trial_index, question_order, question, response, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-      );
-      for (const pair of params.thoughtPartnerResponses) {
-        insertReflection.run(
-          params.sessionId,
-          trial.trial_index,
-          pair.questionOrder,
-          pair.question,
-          pair.response,
-          timestamp
-        );
+      if (session.status !== "active") {
+        throw new Error("Session already completed.");
       }
-    }
+      if (session.current_state !== "post_condition_survey") {
+        throw new Error("Session must be in post_condition_survey before submit.");
+      }
 
-    db.prepare(
-      `
+      const timestamp = nowIso();
+
+      db.prepare("INSERT INTO surveys (session_id, trial_index, responses_json, created_at) VALUES (?, ?, ?, ?)").run(
+        params.sessionId,
+        trial.trial_index,
+        JSON.stringify(params.surveyResponses),
+        timestamp
+      );
+
+      if (params.thoughtPartnerResponses?.length) {
+        const insertReflection = db.prepare(
+          "INSERT INTO thought_partner_reflections (session_id, trial_index, question_order, question, response, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+        );
+        for (const pair of params.thoughtPartnerResponses) {
+          insertReflection.run(
+            params.sessionId,
+            trial.trial_index,
+            pair.questionOrder,
+            pair.question,
+            pair.response,
+            timestamp
+          );
+        }
+      }
+
+      db.prepare(
+        `
       UPDATE trial_plan
       SET status = 'completed', completed_at = ?, final_message_text = ?
       WHERE session_id = ? AND trial_index = ?
       `
-    ).run(timestamp, params.finalMessageText, params.sessionId, trial.trial_index);
+      ).run(timestamp, params.finalMessageText, params.sessionId, trial.trial_index);
 
-    persistTrialMetrics({
-      sessionId: params.sessionId,
-      trialIndex: trial.trial_index,
-      condition: trial.condition,
-      scenarioId: trial.scenario_id,
-      startedAt: trial.started_at,
-      completedAt: timestamp,
-      finalMessageText: params.finalMessageText,
-      interactionMetrics: params.interactionMetrics
-    });
-
-    logEvent({
-      sessionId: params.sessionId,
-      trialIndex: trial.trial_index,
-      eventType: "trial_submitted",
-      payload: {
-        finalMessageLength: params.finalMessageText.length,
-        interactionMetrics: params.interactionMetrics ?? null
-      },
-      timestamp
-    });
-
-    const nextTrial = snapshot.allTrials.find((candidate) => candidate.trial_index === trial.trial_index + 1);
-    if (!nextTrial) {
-      db.prepare("UPDATE sessions SET current_state = 'post_study_survey', updated_at = ? WHERE id = ?").run(
-        timestamp,
-        params.sessionId
-      );
+      persistTrialMetrics({
+        sessionId: params.sessionId,
+        trialIndex: trial.trial_index,
+        condition: trial.condition,
+        scenarioId: trial.scenario_id,
+        startedAt: trial.started_at,
+        completedAt: timestamp,
+        finalMessageText: params.finalMessageText,
+        interactionMetrics: params.interactionMetrics
+      });
 
       logEvent({
         sessionId: params.sessionId,
         trialIndex: trial.trial_index,
-        eventType: "awaiting_post_study_survey",
-        payload: { finalTrialIndex: trial.trial_index },
+        eventType: "trial_submitted",
+        payload: {
+          finalMessageLength: params.finalMessageText.length,
+          interactionMetrics: params.interactionMetrics ?? null
+        },
         timestamp
       });
 
+      const nextTrial = snapshot.allTrials.find((candidate) => candidate.trial_index === trial.trial_index + 1);
+      if (!nextTrial) {
+        db.prepare("UPDATE sessions SET current_state = 'post_study_survey', updated_at = ? WHERE id = ?").run(
+          timestamp,
+          params.sessionId
+        );
+
+        logEvent({
+          sessionId: params.sessionId,
+          trialIndex: trial.trial_index,
+          eventType: "awaiting_post_study_survey",
+          payload: { finalTrialIndex: trial.trial_index },
+          timestamp
+        });
+
+        return {
+          status: "active",
+          currentTrialIndex: trial.trial_index,
+          currentState: "post_study_survey"
+        };
+      }
+
+      logTransition({
+        sessionId: params.sessionId,
+        trialIndex: trial.trial_index,
+        from: "post_condition_survey",
+        to: "inter_condition_buffer",
+        payload: { nextTrialIndex: nextTrial.trial_index }
+      });
+
+      db.prepare("UPDATE sessions SET current_trial_index = ?, current_state = 'inter_condition_buffer', updated_at = ? WHERE id = ?").run(
+        nextTrial.trial_index,
+        timestamp,
+        params.sessionId
+      );
+
       return {
         status: "active",
-        currentTrialIndex: trial.trial_index,
-        currentState: "post_study_survey"
+        currentTrialIndex: nextTrial.trial_index,
+        currentState: "inter_condition_buffer"
       };
-    }
-
-    logTransition({
-      sessionId: params.sessionId,
-      trialIndex: trial.trial_index,
-      from: "post_condition_survey",
-      to: "inter_condition_buffer",
-      payload: { nextTrialIndex: nextTrial.trial_index }
-    });
-
-    db.prepare("UPDATE sessions SET current_trial_index = ?, current_state = 'inter_condition_buffer', updated_at = ? WHERE id = ?").run(
-      nextTrial.trial_index,
-      timestamp,
-      params.sessionId
-    );
-
-    return {
-      status: "active",
-      currentTrialIndex: nextTrial.trial_index,
-      currentState: "inter_condition_buffer"
-    };
     }
   )();
 }
@@ -777,6 +857,52 @@ export function submitPractice(params: {
   })();
 }
 
+export function submitPreStudySurvey(params: {
+  sessionId: string;
+  responses: Record<string, unknown>;
+}): { currentState: StudyState; currentTrialIndex: number } {
+  return db.transaction((): { currentState: StudyState; currentTrialIndex: number } => {
+    const snapshot = getSessionSnapshot(params.sessionId);
+
+    if (snapshot.session.status !== "active") {
+      throw new Error("Session is not active.");
+    }
+
+    if (snapshot.session.is_playground) {
+      throw new Error("Playground sessions do not use the pre-survey.");
+    }
+
+    if (snapshot.session.current_state !== "pre_survey") {
+      throw new Error("Pre-survey is not currently active.");
+    }
+
+    const timestamp = nowIso();
+    db.prepare("INSERT INTO pre_study_surveys (session_id, responses_json, created_at) VALUES (?, ?, ?)").run(
+      params.sessionId,
+      JSON.stringify(params.responses),
+      timestamp
+    );
+
+    db.prepare("UPDATE sessions SET current_state = 'practice_intro', updated_at = ? WHERE id = ?").run(
+      timestamp,
+      params.sessionId
+    );
+
+    logEvent({
+      sessionId: params.sessionId,
+      trialIndex: null,
+      eventType: "pre_survey_submitted",
+      payload: { surveyResponses: params.responses },
+      timestamp
+    });
+
+    return {
+      currentState: "practice_intro",
+      currentTrialIndex: snapshot.session.current_trial_index
+    };
+  })();
+}
+
 export function getCompletionCode(sessionId: string): string {
   return `AIMC-${sessionId.slice(0, 8).toUpperCase()}`;
 }
@@ -799,7 +925,7 @@ export function listAssignmentsAndSessions(): {
     }>;
   }>;
   sessions: Array<Record<string, unknown>>;
-  lockedTargetN: number | null;
+  currentTargetN: number | null;
 } {
   const assignmentRows = db
     .prepare(
@@ -891,10 +1017,11 @@ export function listAssignmentsAndSessions(): {
     )
   }));
 
-  const lockRow = getTargetNLockInfo();
-  const lockedTargetN = lockRow.count > 0 && lockRow.distinctCount === 1 ? lockRow.lockedTargetN : null;
+  const targetInfo = getTargetNInfo();
+  const currentTargetN =
+    targetInfo.count > 0 && targetInfo.distinctCount === 1 ? targetInfo.currentTargetN : null;
 
-  return { cells, sessions: sessionRows, lockedTargetN };
+  return { cells, sessions: sessionRows, currentTargetN };
 }
 
 export function exportAllData(): Record<string, unknown> {
@@ -907,6 +1034,7 @@ export function exportAllData(): Record<string, unknown> {
     "ai_calls",
     "editor_suggestions",
     "thought_partner_reflections",
+    "pre_study_surveys",
     "surveys",
     "post_study_surveys",
     "survey_templates",
