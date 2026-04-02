@@ -104,6 +104,11 @@ export function PracticeFlow({
             <div style={{ display: "grid", gap: "0.8rem" }}>
               {preSurveyItems.map((item) => (
                 <div key={item.id} style={{ display: "grid", gap: "0.45rem" }}>
+                  {item.id === "pre_followup_interview" ? (
+                    <p style={{ margin: 0, color: "black", fontSize: "0.95rem" }}>
+                      If you choose to participate in the interview, we will send you a scheduling invitation for interview after completion.
+                    </p>
+                  ) : null}
                   <SurveyQuestionField
                     item={item}
                     value={preSurveyAnswers[item.id]}

@@ -115,14 +115,6 @@ const PRE_SURVEY_ITEMS: SurveyItem[] = [
     inputType: "email"
   },
   {
-    id: "pre_followup_interview",
-    prompt: "Would you be willing to participate in a follow-up interview?",
-    type: "multiple_choice",
-    required: true,
-    condition: "all",
-    options: ["Yes", "No", "Maybe"]
-  },
-  {
     id: "pre_age_group",
     prompt: "In what age group are you?",
     type: "multiple_choice",
@@ -229,6 +221,14 @@ const PRE_SURVEY_ITEMS: SurveyItem[] = [
       "Agree",
       "Strongly agree"
     ]
+  },
+  {
+    id: "pre_followup_interview",
+    prompt: "Would you be willing to participate in a follow-up interview?",
+    type: "multiple_choice",
+    required: true,
+    condition: "all",
+    options: ["Yes", "No"]
   }
 ];
 
