@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 type ItemShape = {
   id: string;
   prompt: string;
-  type: "likert" | "open_text" | "short_text" | "multiple_choice" | "ranking";
+  type: "likert" | "open_text" | "short_text" | "multiple_choice" | "radio" | "ranking";
   required: boolean;
   placeholder?: string;
   inputType?: "text" | "email";
@@ -79,6 +79,41 @@ export function SurveyQuestionField({
           disabled={disabled}
         />
       </Label>
+    );
+  }
+
+  if (item.type === "radio") {
+    return (
+      <fieldset style={{ margin: 0, padding: 0, border: "none", display: "grid", gap: "0.6rem" }}>
+        <legend className="survey-question-label">{label}</legend>
+        <div style={{ display: "grid", gap: "0.55rem" }} role="radiogroup" aria-label={item.prompt}>
+          {(item.options ?? []).map((option) => {
+            const selected = value === option;
+            return (
+              <label
+                key={`${item.id}_${option}`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.65rem",
+                  color: disabled ? "var(--muted-foreground)" : "inherit",
+                  cursor: disabled ? "not-allowed" : "pointer"
+                }}
+              >
+                <input
+                  type="radio"
+                  name={item.id}
+                  value={option}
+                  checked={selected}
+                  disabled={disabled}
+                  onChange={() => onChange(option)}
+                />
+                <span>{option}</span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
     );
   }
 

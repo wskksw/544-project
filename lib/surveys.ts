@@ -8,7 +8,7 @@ const surveyItemSchema = z
   .object({
     id: z.string().min(1),
     prompt: z.string().min(1),
-    type: z.enum(["likert", "open_text", "short_text", "multiple_choice", "ranking"]),
+    type: z.enum(["likert", "open_text", "short_text", "multiple_choice", "radio", "ranking"]),
     required: z.boolean().default(true),
     condition: z.enum(["all", "thought_partner", "editor", "ghost_writer"]).default("all"),
     placeholder: z.string().min(1).optional(),
@@ -41,7 +41,7 @@ const surveyItemSchema = z
       }
     }
 
-    if ((item.type === "multiple_choice" || item.type === "ranking") && (!item.options || item.options.length < 2)) {
+    if ((item.type === "multiple_choice" || item.type === "radio" || item.type === "ranking") && (!item.options || item.options.length < 2)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${item.type} items need at least two options.` });
     }
 

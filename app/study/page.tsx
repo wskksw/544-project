@@ -1,5 +1,7 @@
 "use client";
 
+import { ConsentFormContent } from "@/components/study/ConsentFormContent";
+import { CONSENT_OPTION_NO, CONSENT_OPTION_YES, CONSENT_QUESTION } from "@/components/study/consent";
 import { StudyContactBar } from "@/components/study/StudyContactBar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +14,7 @@ export default function StudyLoginPage() {
   const [accessCode, setAccessCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [consentChecked, setConsentChecked] = useState(false);
+  const [consentChoice, setConsentChoice] = useState("");
   const [consentOpen, setConsentOpen] = useState(true);
   const router = useRouter();
 
@@ -56,88 +58,45 @@ export default function StudyLoginPage() {
             aria-labelledby="consent-modal-title"
           >
             <div className="consent-modal-header">
-              <p className="consent-modal-kicker">UBC Human-Computer Interaction Course Project</p>
               <h1 id="consent-modal-title">Consent Form</h1>
-              <p>
-                Please read this summary before entering the study. Full consent details and confirmation fields are
-                collected again inside the integrated pre-study survey.
-              </p>
             </div>
 
             <div className="consent-modal-body">
-              <section className="consent-copy-section">
-                <h2>Study Team</h2>
-                <p>
-                  Principal Investigator: Dongwook Yoon, Associate Professor, Department of Computer Science,
-                  University of British Columbia, <a href="mailto:yoon@cs.ubc.ca">yoon@cs.ubc.ca</a>, 604-822-1993
-                </p>
-                <p>
-                  Student Investigators: Yuri Kim, <a href="mailto:yurikim1@cs.ubc.ca">yurikim1@cs.ubc.ca</a> · Kevin
-                  Wang, <a href="mailto:kevinsk@student.ubc.ca">kevinsk@student.ubc.ca</a>
-                </p>
-              </section>
-
-              <section className="consent-copy-section">
-                <h2>Purpose and Eligibility</h2>
-                <p>
-                  This study explores how people interact with different AI-assisted writing tools when composing
-                  messages to others. It is intended for people who have used AI chatbots such as ChatGPT, Claude, or
-                  Grammarly at least a few times before and are open to using them for writing tasks.
-                </p>
-              </section>
-
-              <section className="consent-copy-section">
-                <h2>What You Will Do</h2>
-                <ul>
-                  <li>Complete the study in one sitting using this web-based interface.</li>
-                  <li>Answer the integrated pre-study and post-study questionnaires on the site.</li>
-                  <li>Optionally join a Zoom follow-up interview later.</li>
-                </ul>
-                <p>
-                  The system portion takes about 30-45 minutes. If you also join the interview, the full commitment is
-                  about 45-60 minutes.
-                </p>
-                <p>
-                  Some of the writing tasks may feel emotionally demanding. You may stop at any time if you no longer
-                  wish to participate.
-                </p>
-              </section>
-
-              <section className="consent-copy-section">
-                <h2>Data and Confidentiality</h2>
-                <p>
-                  Your responses will be used for course-project analysis and presentations, and the project may later
-                  be extended into research publication work. Data will be stored in Canada and reported without naming
-                  you directly.
-                </p>
-                <p>
-                  If you participate in the optional Zoom interview, you may choose not to be video or audio recorded.
-                  You may also use a nickname, turn off your camera, or mute when appropriate.
-                </p>
-              </section>
-
-              <section className="consent-copy-section">
-                <h2>Questions or Concerns</h2>
-                <p>
-                  For study support, text Kevin Wang at <a href="tel:2368670839">236-867-0839</a> or email{" "}
-                  <a href="mailto:kevinwang1262000@gmail.com">kevinwang1262000@gmail.com</a>. For participant-rights
-                  concerns, contact the UBC Research Participant Complaint Line at 604-822-8598 or{" "}
-                  <a href="mailto:RSIL@ors.ubc.ca">RSIL@ors.ubc.ca</a>.
-                </p>
-              </section>
+              <ConsentFormContent />
             </div>
 
-            <label className="consent-check-row">
-              <input
-                type="checkbox"
-                checked={consentChecked}
-                onChange={(event) => setConsentChecked(event.target.checked)}
-              />
-              <span>I have read this summary and consent to continue to the study access page.</span>
-            </label>
+            <div className="consent-copy-section">
+              <p>
+                <strong>{CONSENT_QUESTION}</strong>
+              </p>
+
+              <label className="consent-check-row">
+                <input
+                  type="radio"
+                  name="consent-choice"
+                  checked={consentChoice === CONSENT_OPTION_YES}
+                  onChange={() => setConsentChoice(CONSENT_OPTION_YES)}
+                />
+                <span>{CONSENT_OPTION_YES}</span>
+              </label>
+
+              <label className="consent-check-row">
+                <input
+                  type="radio"
+                  name="consent-choice"
+                  checked={consentChoice === CONSENT_OPTION_NO}
+                  onChange={() => setConsentChoice(CONSENT_OPTION_NO)}
+                />
+                <span>{CONSENT_OPTION_NO}</span>
+              </label>
+
+              {consentChoice === CONSENT_OPTION_NO ? (
+                <p className="text-warning">You cannot continue to the access code page unless you consent to participate.</p>
+              ) : null}
+            </div>
 
             <div className="row-wrap">
-              <Button disabled={!consentChecked} onClick={() => setConsentOpen(false)}>
+              <Button disabled={consentChoice !== CONSENT_OPTION_YES} onClick={() => setConsentOpen(false)}>
                 Continue to Access Code
               </Button>
             </div>

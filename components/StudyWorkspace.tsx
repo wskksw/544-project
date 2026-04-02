@@ -3,6 +3,7 @@
 import type { SurveyValue } from "@/components/surveys/SurveyQuestionField";
 import { visibleSurveyItems as filterVisibleSurveyItems } from "@/lib/surveyItems";
 import { AiAssistantPanel } from "@/components/study/AiAssistantPanel";
+import { CONSENT_OPTION_YES, CONSENT_QUESTION, CONSENT_OPTION_NO } from "@/components/study/consent";
 import { ConditionSurveySection } from "@/components/study/ConditionSurveySection";
 import { MainEditorPanel } from "@/components/study/MainEditorPanel";
 import { PostStudySurveySection } from "@/components/study/PostStudySurveySection";
@@ -61,14 +62,32 @@ const PRACTICE_SURVEY_ITEMS: SurveyItem[] = [
   }
 ];
 
+const ETHNICITY_OPTIONS = [
+  "White (e.g., European origins)",
+  "South Asian (e.g., Indian, Pakistani, Sri Lankan)",
+  "Chinese",
+  "Black (e.g., African American, African Canadian, Caribbean origins)",
+  "Filipino",
+  "Arab",
+  "Latin American, Central or South American origins",
+  "Southeast Asian (e.g., Vietnamese, Cambodian, Laotian, Thai)",
+  "West Asian (e.g., Iranian, Afghan)",
+  "Korean",
+  "Japanese",
+  "Indigenous (e.g., First Nation, Inuit, Metis, Alaska Native)",
+  "Pacific Islander (e.g., Hawaiian, Samoan)",
+  "Other (please specify)",
+  "Prefer not to answer"
+];
+
 const PRE_SURVEY_ITEMS: SurveyItem[] = [
   {
     id: "pre_consent",
-    prompt: 'Do you consent to participate in this research study?',
-    type: "multiple_choice",
+    prompt: CONSENT_QUESTION,
+    type: "radio",
     required: true,
     condition: "all",
-    options: ["Yes, I consent to participate in this study", "No, I do not consent"]
+    options: [CONSENT_OPTION_YES, CONSENT_OPTION_NO]
   },
   {
     id: "pre_full_name",
@@ -138,10 +157,20 @@ const PRE_SURVEY_ITEMS: SurveyItem[] = [
   {
     id: "pre_ethnicity",
     prompt: "Ethnicity",
-    type: "short_text",
+    type: "multiple_choice",
     required: true,
     condition: "all",
-    placeholder: "Please specify"
+    options: ETHNICITY_OPTIONS
+  },
+  {
+    id: "pre_ethnicity_other",
+    prompt: "Other ethnicity",
+    type: "short_text",
+    required: false,
+    condition: "all",
+    placeholder: "Please specify",
+    dependsOnItemId: "pre_ethnicity",
+    dependsOnValue: ["Other (please specify)"]
   },
   {
     id: "pre_occupation",
@@ -185,20 +214,20 @@ const PRE_SURVEY_ITEMS: SurveyItem[] = [
   },
   {
     id: "pre_writing_confidence",
-    prompt: "I am confident in my ability to express my feelings in writing",
+    prompt: "I am confident in my ability to express my feelings in writing.",
     type: "likert",
     required: true,
     condition: "all",
     scaleMin: 1,
     scaleMax: 7,
     scaleLabels: [
-      "Not at all ready",
-      "Slightly ready",
-      "A little ready",
-      "Moderately ready",
-      "Fairly ready",
-      "Very ready",
-      "Completely ready"
+      "Strongly disagree",
+      "Disagree",
+      "Somewhat disagree",
+      "Neutral",
+      "Somewhat agree",
+      "Agree",
+      "Strongly agree"
     ]
   }
 ];
@@ -505,7 +534,7 @@ export function StudyWorkspace({
       return;
     }
 
-    if (preSurveyAnswers.pre_consent !== "Yes, I consent to participate in this study") {
+    if (preSurveyAnswers.pre_consent !== CONSENT_OPTION_YES) {
       setError("You must consent to participate before continuing into the study.");
       return;
     }
@@ -513,6 +542,11 @@ export function StudyWorkspace({
     const email = typeof preSurveyAnswers.pre_email === "string" ? preSurveyAnswers.pre_email.trim() : "";
     if (!email || !email.includes("@")) {
       setError("Please provide a valid email address so we can contact you about the optional interview.");
+      return;
+    }
+
+    if (preSurveyAnswers.pre_prior_ai_usage_frequency === 1) {
+      setError("Participants who have never used AI writing tools are not eligible for this study.");
       return;
     }
 

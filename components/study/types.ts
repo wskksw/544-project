@@ -21,7 +21,7 @@ export type StudyState =
 export type SurveyItem = {
   id: string;
   prompt: string;
-  type: "likert" | "open_text" | "short_text" | "multiple_choice" | "ranking";
+  type: "likert" | "open_text" | "short_text" | "multiple_choice" | "radio" | "ranking";
   required: boolean;
   condition: Condition | "all";
   placeholder?: string;

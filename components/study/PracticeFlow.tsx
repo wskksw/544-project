@@ -1,6 +1,7 @@
 "use client";
 
 import { SurveyQuestionField, type SurveyValue } from "@/components/surveys/SurveyQuestionField";
+import { ConsentFormContent } from "@/components/study/ConsentFormContent";
 import { StudyContactBar } from "@/components/study/StudyContactBar";
 import type { AiLoadingCopy, PortalMode, StudyState, SurveyItem } from "@/components/study/types";
 
@@ -59,6 +60,11 @@ export function PracticeFlow({
   onSubmitPracticeRound: () => void;
   practiceWordCount: number;
 }) {
+  const preSurveyBlockedForAiInexperience = preSurveyAnswers.pre_prior_ai_usage_frequency === 1;
+  const preSurveyContinueTitle = preSurveyBlockedForAiInexperience
+    ? "Participants who have never used AI writing tools are not eligible for this study."
+    : "Continue to the practice round.";
+
   return (
     <div className="layout-grid">
       <section className="card">
@@ -92,32 +98,29 @@ export function PracticeFlow({
         <section className="card" style={{ maxWidth: 860, margin: "0 auto" }}>
           <div style={{ display: "grid", gap: "0.9rem" }}>
             <h1>Consent and Pre-Study Survey</h1>
-            <div className="study-guide-panel">
-              <p>
-                Please complete the consent confirmation and baseline questions before the practice round. Plan to
-                finish the system in one sitting.
-              </p>
-              <p>
-                Some of the upcoming writing tasks may feel emotionally demanding. You may pause or withdraw at any
-                time if you no longer want to continue.
-              </p>
-              <p>
-                Enter the email address you want us to use if we invite you to the optional Zoom interview with close
-                friends later in the study.
-              </p>
+            <div className="consent-modal-body">
+              <ConsentFormContent />
             </div>
             <div style={{ display: "grid", gap: "0.8rem" }}>
               {preSurveyItems.map((item) => (
-                <SurveyQuestionField
-                  key={item.id}
-                  item={item}
-                  value={preSurveyAnswers[item.id]}
-                  disabled={busy}
-                  onChange={(next) => onPreSurveyChange(item.id, next)}
-                />
+                <div key={item.id} style={{ display: "grid", gap: "0.45rem" }}>
+                  <SurveyQuestionField
+                    item={item}
+                    value={preSurveyAnswers[item.id]}
+                    disabled={busy}
+                    onChange={(next) => onPreSurveyChange(item.id, next)}
+                  />
+                </div>
               ))}
             </div>
-            <button className="primary" type="button" disabled={busy} onClick={onSubmitPreSurvey}>
+            <button
+              className="primary"
+              type="button"
+              disabled={busy}
+              title={preSurveyContinueTitle}
+              style={preSurveyBlockedForAiInexperience ? { cursor: "not-allowed" } : undefined}
+              onClick={onSubmitPreSurvey}
+            >
               Continue to Practice
             </button>
           </div>
