@@ -51,6 +51,7 @@ export type SessionPayload = {
     status: "active" | "completed";
     currentTrialIndex: number;
     currentState: StudyState;
+    followupInterviewOptIn: boolean;
   };
   currentTrial: {
     trial_index: number;

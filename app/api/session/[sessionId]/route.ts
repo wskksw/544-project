@@ -21,7 +21,8 @@ export async function GET(
         isPlayground: Boolean(snapshot.session.is_playground),
         status: snapshot.session.status,
         currentTrialIndex: snapshot.session.current_trial_index,
-        currentState: snapshot.session.current_state
+        currentState: snapshot.session.current_state,
+        followupInterviewOptIn: snapshot.preStudySurveyResponses?.pre_followup_interview === "Yes"
       },
       currentTrial: {
         ...snapshot.currentTrial,

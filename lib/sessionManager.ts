@@ -47,6 +47,10 @@ type TrialRow = {
   final_message_text: string | null;
 };
 
+type PreStudySurveyRow = {
+  responses_json: string;
+};
+
 const ACCESS_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function assertTargetN(targetN: number): void {
@@ -532,6 +536,7 @@ export function getSessionSnapshot(sessionId: string): {
   session: SessionRow;
   currentTrial: TrialRow;
   allTrials: TrialRow[];
+  preStudySurveyResponses: Record<string, unknown> | null;
 } {
   const session = db
     .prepare(
@@ -559,7 +564,25 @@ export function getSessionSnapshot(sessionId: string): {
     throw new Error("Current trial not found.");
   }
 
-  return { session, currentTrial, allTrials };
+  const preStudySurvey = db
+    .prepare(
+      "SELECT responses_json FROM pre_study_surveys WHERE session_id = ? ORDER BY created_at DESC LIMIT 1"
+    )
+    .get(sessionId) as PreStudySurveyRow | undefined;
+
+  let preStudySurveyResponses: Record<string, unknown> | null = null;
+  if (preStudySurvey) {
+    try {
+      const parsed = JSON.parse(preStudySurvey.responses_json) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        preStudySurveyResponses = parsed as Record<string, unknown>;
+      }
+    } catch {
+      preStudySurveyResponses = null;
+    }
+  }
+
+  return { session, currentTrial, allTrials, preStudySurveyResponses };
 }
 
 export function transitionSessionState(params: {

@@ -232,6 +232,7 @@ const PRE_SURVEY_ITEMS: SurveyItem[] = [
   }
 ];
 
+const WHEN2MEET_URL = "https://www.when2meet.com/?35925525-Lbjiy";
 
 export function StudyWorkspace({
   sessionId,
@@ -267,6 +268,8 @@ export function StudyWorkspace({
   const [practiceText, setPracticeText] = useState("");
   const [practiceSurveyAnswers, setPracticeSurveyAnswers] = useState<Record<string, SurveyValue>>({});
   const [preSurveyAnswers, setPreSurveyAnswers] = useState<Record<string, SurveyValue>>({});
+  const [interviewAvailabilityConfirmed, setInterviewAvailabilityConfirmed] = useState(false);
+  const [interviewZoomConfirmed, setInterviewZoomConfirmed] = useState(false);
 
   const [modifyingId, setModifyingId] = useState<number | null>(null);
   const [modifyText, setModifyText] = useState("");
@@ -376,6 +379,8 @@ export function StudyWorkspace({
     setPracticeText("");
     setPracticeSurveyAnswers({});
     setPreSurveyAnswers({});
+    setInterviewAvailabilityConfirmed(false);
+    setInterviewZoomConfirmed(false);
     setPracticeNudge(null);
     setPracticeNudgeRequested(false);
     setKeystrokeCount(0);
@@ -497,6 +502,13 @@ export function StudyWorkspace({
     () => filterVisibleSurveyItems(PRE_SURVEY_ITEMS, preSurveyAnswers),
     [preSurveyAnswers]
   );
+  const isInterviewSelected = preSurveyAnswers.pre_followup_interview === "Yes";
+
+  useEffect(() => {
+    if (preSurveyAnswers.pre_followup_interview !== "Yes") {
+      setInterviewAvailabilityConfirmed(false);
+    }
+  }, [preSurveyAnswers.pre_followup_interview]);
 
   async function startConditionFlow(): Promise<void> {
     if (!snapshot) {
@@ -516,10 +528,16 @@ export function StudyWorkspace({
   }
 
   async function startPracticeTask(): Promise<void> {
+    if (snapshot?.session.followupInterviewOptIn && !interviewZoomConfirmed) {
+      setError("Please confirm that you are with the researcher on Zoom before continuing.");
+      return;
+    }
+
     setBusy(true);
     setError("");
     try {
       await transition("practice_task");
+      setInterviewZoomConfirmed(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to open practice task");
     } finally {
@@ -550,6 +568,11 @@ export function StudyWorkspace({
       return;
     }
 
+    if (isInterviewSelected && !interviewAvailabilityConfirmed) {
+      setError("Please confirm that you added your availability on When2Meet before continuing.");
+      return;
+    }
+
     const responses: Record<string, unknown> = {};
     for (const item of PRE_SURVEY_ITEMS) {
       responses[item.id] = preSurveyAnswers[item.id] ?? null;
@@ -564,6 +587,7 @@ export function StudyWorkspace({
         body: JSON.stringify({ responses })
       });
       setPreSurveyAnswers({});
+      setInterviewAvailabilityConfirmed(false);
       await loadSnapshot();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit pre-survey");
@@ -654,6 +678,14 @@ export function StudyWorkspace({
     } finally {
       setBusy(false);
     }
+  }
+
+  function handlePreSurveyChange(itemId: string, next: SurveyValue): void {
+    if (itemId === "pre_followup_interview" && next !== "Yes") {
+      setInterviewAvailabilityConfirmed(false);
+    }
+
+    setPreSurveyAnswers((prev) => ({ ...prev, [itemId]: next }));
   }
 
   function reflectionPairs(): Array<{ questionOrder: number; question: string; response: string }> {
@@ -1097,6 +1129,9 @@ export function StudyWorkspace({
       return (
         <div className="card">
           <h1>Thank you for participating in our study.</h1>
+          {snapshot.session.followupInterviewOptIn ? (
+            <p style={{ color: "black" }}>Please inform the researcher that you are done and ready for the interview.</p>
+          ) : null}
         </div>
       );
     }
@@ -1206,6 +1241,11 @@ export function StudyWorkspace({
         currentState={currentState}
         busy={busy}
         error={error}
+        isInterviewSelected={isInterviewSelected}
+        isInterviewParticipant={snapshot.session.followupInterviewOptIn}
+        when2MeetUrl={WHEN2MEET_URL}
+        interviewAvailabilityConfirmed={interviewAvailabilityConfirmed}
+        interviewZoomConfirmed={interviewZoomConfirmed}
         preSurveyItems={visiblePreSurveyItems}
         preSurveyAnswers={preSurveyAnswers}
         practiceSurveyItems={PRACTICE_SURVEY_ITEMS}
@@ -1215,7 +1255,9 @@ export function StudyWorkspace({
         practiceNudge={practiceNudge}
         aiLoadingCopy={aiLoadingCopy}
         isPracticeAiLoading={isPracticeAiLoading}
-        onPreSurveyChange={(itemId, next) => setPreSurveyAnswers((prev) => ({ ...prev, [itemId]: next }))}
+        onPreSurveyChange={handlePreSurveyChange}
+        onInterviewAvailabilityConfirmedChange={setInterviewAvailabilityConfirmed}
+        onInterviewZoomConfirmedChange={setInterviewZoomConfirmed}
         onPracticeSurveyChange={(itemId, next) => setPracticeSurveyAnswers((prev) => ({ ...prev, [itemId]: next }))}
         onPracticeTextChange={setPracticeText}
         onSubmitPreSurvey={() => void submitPreSurvey()}

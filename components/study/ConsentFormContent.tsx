@@ -59,6 +59,10 @@ export function ConsentFormContent() {
           sessions.
         </p>
         <p>
+          Some of the writing tasks may feel emotionally demanding because they ask you to reflect on interpersonal
+          situations and compose personal messages.
+        </p>
+        <p>
           The interview session may also be video and/or audio recorded. You have the option not to be video/audio
           recorded.
         </p>

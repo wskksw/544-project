@@ -14,6 +14,11 @@ export function PracticeFlow({
   currentState,
   busy,
   error,
+  isInterviewSelected,
+  isInterviewParticipant,
+  when2MeetUrl,
+  interviewAvailabilityConfirmed,
+  interviewZoomConfirmed,
   preSurveyItems,
   preSurveyAnswers,
   practiceSurveyItems,
@@ -24,6 +29,8 @@ export function PracticeFlow({
   aiLoadingCopy,
   isPracticeAiLoading,
   onPreSurveyChange,
+  onInterviewAvailabilityConfirmedChange,
+  onInterviewZoomConfirmedChange,
   onPracticeSurveyChange,
   onPracticeTextChange,
   onSubmitPreSurvey,
@@ -41,6 +48,11 @@ export function PracticeFlow({
   currentState: StudyState;
   busy: boolean;
   error: string;
+  isInterviewSelected: boolean;
+  isInterviewParticipant: boolean;
+  when2MeetUrl: string;
+  interviewAvailabilityConfirmed: boolean;
+  interviewZoomConfirmed: boolean;
   preSurveyItems: SurveyItem[];
   preSurveyAnswers: Record<string, SurveyValue>;
   practiceSurveyItems: SurveyItem[];
@@ -51,6 +63,8 @@ export function PracticeFlow({
   aiLoadingCopy: AiLoadingCopy | null;
   isPracticeAiLoading: boolean;
   onPreSurveyChange: (itemId: string, next: SurveyValue) => void;
+  onInterviewAvailabilityConfirmedChange: (next: boolean) => void;
+  onInterviewZoomConfirmedChange: (next: boolean) => void;
   onPracticeSurveyChange: (itemId: string, next: SurveyValue) => void;
   onPracticeTextChange: (nextText: string) => void;
   onSubmitPreSurvey: () => void;
@@ -63,7 +77,10 @@ export function PracticeFlow({
   const preSurveyBlockedForAiInexperience = preSurveyAnswers.pre_prior_ai_usage_frequency === 1;
   const preSurveyContinueTitle = preSurveyBlockedForAiInexperience
     ? "Participants who have never used AI writing tools are not eligible for this study."
-    : "Continue to the practice round.";
+    : isInterviewSelected
+      ? "Continue to the interview instructions."
+      : "Continue to the practice round.";
+  const preSurveyContinueLabel = isInterviewSelected ? "Continue to Interview Instructions" : "Continue to Practice";
 
   return (
     <div className="layout-grid">
@@ -101,12 +118,17 @@ export function PracticeFlow({
             <div className="consent-modal-body">
               <ConsentFormContent />
             </div>
-            <div style={{ display: "grid", gap: "0.8rem" }}>
+            <div style={{ display: "grid", gap: "1.15rem" }}>
               {preSurveyItems.map((item) => (
-                <div key={item.id} style={{ display: "grid", gap: "0.45rem" }}>
+                <div key={item.id} style={{ display: "grid", gap: "0.55rem" }}>
+                  {item.id === "pre_writing_confidence" ? (
+                    <p style={{ margin: 0, color: "black", fontSize: "0.95rem" }}>
+                      For this question, please indicate how much you agree with the statement.
+                    </p>
+                  ) : null}
                   {item.id === "pre_followup_interview" ? (
                     <p style={{ margin: 0, color: "black", fontSize: "0.95rem" }}>
-                      If you choose to participate in the interview, we will send you a scheduling invitation for interview after completion.
+                      If you choose Yes, you will add your availability now and then continue with the researcher-led interview flow.
                     </p>
                   ) : null}
                   <SurveyQuestionField
@@ -117,6 +139,39 @@ export function PracticeFlow({
                   />
                 </div>
               ))}
+              {isInterviewSelected ? (
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "0.8rem",
+                    padding: "1rem",
+                    borderRadius: "0.85rem",
+                    background: "var(--muted)"
+                  }}
+                >
+                  <div style={{ display: "grid", gap: "0.45rem" }}>
+                    <h2 style={{ margin: 0, fontSize: "1.05rem" }}>Interview scheduling</h2>
+                    <p style={{ margin: 0, color: "black" }}>
+                      Please add every time slot that works for you before you continue. After that, the next page will give you the
+                      researcher-led session instructions.
+                    </p>
+                  </div>
+                  <div>
+                    <a href={when2MeetUrl} target="_blank" rel="noreferrer">
+                      Open When2Meet
+                    </a>
+                  </div>
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem", color: "black" }}>
+                    <input
+                      type="checkbox"
+                      checked={interviewAvailabilityConfirmed}
+                      disabled={busy}
+                      onChange={(event) => onInterviewAvailabilityConfirmedChange(event.target.checked)}
+                    />
+                    <span>I added my availability on When2Meet.</span>
+                  </label>
+                </div>
+              ) : null}
             </div>
             <button
               className="primary"
@@ -126,38 +181,89 @@ export function PracticeFlow({
               style={preSurveyBlockedForAiInexperience ? { cursor: "not-allowed" } : undefined}
               onClick={onSubmitPreSurvey}
             >
-              Continue to Practice
+              {preSurveyContinueLabel}
             </button>
           </div>
         </section>
       ) : null}
 
       {currentState === "practice_intro" ? (
-        <div className="workspace-grid">
-          <section className="card">
+        isInterviewParticipant ? (
+          <section className="card" style={{ maxWidth: 860, margin: "0 auto" }}>
             <div style={{ display: "grid", gap: "0.9rem" }}>
-              <h1 title="This round is only for learning the interface.">Practice Round</h1>
+              <h1>Interview Session Instructions</h1>
               <p style={{ color: "black" }}>
-                Before the real study begins, complete this short practice round to get familiar with the interface including the AI
-                side panel on the right.
+                You selected the follow-up interview. Please do not begin the study on your own. Wait until your scheduled time and
+                continue only when you are with the researcher on Zoom.
               </p>
-              <p style={{ color: "black" }}>The practice task is not part of the main analysis. It should take about two minutes.</p>
+              <div
+                style={{
+                  display: "grid",
+                  gap: "0.7rem",
+                  padding: "1rem",
+                  borderRadius: "0.85rem",
+                  background: "var(--muted)"
+                }}
+              >
+                <p style={{ margin: 0, color: "black" }}>
+                  Need to update your availability? You can reopen the scheduling link here:
+                </p>
+                <div>
+                  <a href={when2MeetUrl} target="_blank" rel="noreferrer">
+                    Open When2Meet
+                  </a>
+                </div>
+              </div>
+              <p style={{ color: "black" }}>
+                Once the researcher is with you on Zoom, you will complete the same short practice round before the main study begins.
+              </p>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem", color: "black" }}>
+                <input
+                  type="checkbox"
+                  checked={interviewZoomConfirmed}
+                  disabled={busy}
+                  onChange={(event) => onInterviewZoomConfirmedChange(event.target.checked)}
+                />
+                <span>I am with the researcher on Zoom and ready to begin the practice round.</span>
+              </label>
               <button
                 className="primary"
                 type="button"
-                disabled={busy}
-                title="Opens a simple warm-up writing task."
+                disabled={busy || !interviewZoomConfirmed}
+                title="Opens the practice round once you are with the researcher."
                 onClick={onStartPracticeTask}
               >
-                Start When Ready
+                Continue to Practice Round
               </button>
             </div>
           </section>
-          <section className="card">
-            <h2>AI Side Panel</h2>
-            <p style={{ color: "var(--muted-foreground)" }}>The AI assistant will appear here once you start the practice task.</p>
-          </section>
-        </div>
+        ) : (
+          <div className="workspace-grid">
+            <section className="card">
+              <div style={{ display: "grid", gap: "0.9rem" }}>
+                <h1 title="This round is only for learning the interface.">Practice Round</h1>
+                <p style={{ color: "black" }}>
+                  Before the real study begins, complete this short practice round to get familiar with the interface including the AI
+                  side panel on the right.
+                </p>
+                <p style={{ color: "black" }}>The practice task is not part of the main analysis. It should take about two minutes.</p>
+                <button
+                  className="primary"
+                  type="button"
+                  disabled={busy}
+                  title="Opens a simple warm-up writing task."
+                  onClick={onStartPracticeTask}
+                >
+                  Start When Ready
+                </button>
+              </div>
+            </section>
+            <section className="card">
+              <h2>AI Side Panel</h2>
+              <p style={{ color: "var(--muted-foreground)" }}>The AI assistant will appear here once you start the practice task.</p>
+            </section>
+          </div>
+        )
       ) : null}
 
       {currentState === "practice_task" ? (
