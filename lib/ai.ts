@@ -100,13 +100,10 @@ Use only the bullet points provided in the user prompt. Do NOT use, infer, or re
 Rules:
 - Write in first person as if you are the user
 - Length: 80–150 words
-- Match the tone, emotional register, and level of polish implied by the user's bullet points
 - Preserve likely human variation: the message should sound plausible and natural, not optimized, literary, or therapist-like
 - Do NOT add information, motives, emotions, explanations, promises, or context that the user did not mention or clearly imply
 - Do NOT include greetings like "Dear" or sign-offs like "Sincerely"
 - The message should read like a real text message — natural, conversational, not overly literary
-- Avoid generic conflict-resolution cliches, corporate phrasing, and exaggerated emotional language unless the bullets clearly support them
-- Do NOT turn bullet fragments into facts if they are uncertain or ambiguous
 - If the bullet points are vague or lack detail, write a restrained message using only what was provided — do not infer or elaborate beyond what the user stated
 
 Return only the message text, nothing else.`;
