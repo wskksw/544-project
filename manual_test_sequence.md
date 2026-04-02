@@ -175,10 +175,19 @@ Implemented in the current app:
 - `suggestion_acceptance_rate`
 - `ghost_writer_edit_count`
 - `reflection_duration_sec`
+- `suggestion_total_count`
+- `suggestion_accept_count`
+- `suggestion_modify_count`
+- `suggestion_reject_count`
+- `suggestion_applied_count`
+- `suggestion_modify_rate`
+- `suggestion_applied_rate`
 
 Implementation note:
 - `self_authored_text_ratio` is currently approximated as `keystrokeCount / finalMessageLength`, clamped to `0..1`
-- `ghost_writer_edit_count` is currently counted as editor change events after draft generation, not a semantic diff against AI output
+- `keystroke_count` counts text-editing key presses in the main editor: printable characters, `Enter`, `Backspace`, and `Delete`
+- `ghost_writer_edit_count` is counted from those same tracked keystrokes after the Ghost Writer draft is generated, not a semantic diff against AI output
+- `suggestion_acceptance_rate` remains strict accepts only; `modify` outcomes are exported separately
 - If stricter instrumentation is needed later, validate those two metrics before relying on them analytically
 
 ## Export Verification

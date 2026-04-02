@@ -1,11 +1,13 @@
 "use client";
 
 import type { SurveyValue } from "@/components/surveys/SurveyQuestionField";
+import { visibleSurveyItems as filterVisibleSurveyItems } from "@/lib/surveyItems";
 import { AiAssistantPanel } from "@/components/study/AiAssistantPanel";
 import { ConditionSurveySection } from "@/components/study/ConditionSurveySection";
 import { MainEditorPanel } from "@/components/study/MainEditorPanel";
 import { PostStudySurveySection } from "@/components/study/PostStudySurveySection";
 import { PracticeFlow } from "@/components/study/PracticeFlow";
+import { StudyContactBar } from "@/components/study/StudyContactBar";
 import { StudyHeader } from "@/components/study/StudyHeader";
 import type {
   AiActivity,
@@ -23,6 +25,7 @@ import {
   bulletInputGuidance,
   countWords,
   getPromptText,
+  isTrackedEditingKeystroke,
   missingRequiredItems,
   updateEditorHighlightRanges,
   visibleSurveyItems
@@ -60,41 +63,129 @@ const PRACTICE_SURVEY_ITEMS: SurveyItem[] = [
 
 const PRE_SURVEY_ITEMS: SurveyItem[] = [
   {
-    id: "pre_age",
-    prompt: "Age",
-    type: "open_text",
+    id: "pre_consent",
+    prompt: 'Do you consent to participate in this research study?',
+    type: "multiple_choice",
     required: true,
-    condition: "all"
+    condition: "all",
+    options: ["Yes, I consent to participate in this study", "No, I do not consent"]
   },
   {
-    id: "pre_english_comfort",
-    prompt: "Primary language / English comfort for text messaging",
+    id: "pre_full_name",
+    prompt: "Full name",
+    type: "short_text",
+    required: true,
+    condition: "all",
+    placeholder: "First and last name"
+  },
+  {
+    id: "pre_today_date",
+    prompt: "Today's date (YYYY/MM/DD)",
+    type: "short_text",
+    required: true,
+    condition: "all",
+    placeholder: "2026/04/01"
+  },
+  {
+    id: "pre_email",
+    prompt: "Your email address",
+    type: "short_text",
+    required: true,
+    condition: "all",
+    placeholder: "name@example.com",
+    inputType: "email"
+  },
+  {
+    id: "pre_followup_interview",
+    prompt: "Would you be willing to participate in a follow-up interview?",
+    type: "multiple_choice",
+    required: true,
+    condition: "all",
+    options: ["Yes", "No", "Maybe"]
+  },
+  {
+    id: "pre_age_group",
+    prompt: "In what age group are you?",
+    type: "multiple_choice",
+    required: true,
+    condition: "all",
+    options: ["18 and under", "20 - 29", "30 - 39", "40 - 49", "50 - 59", "60 +"]
+  },
+  {
+    id: "pre_gender",
+    prompt: "Gender",
+    type: "multiple_choice",
+    required: true,
+    condition: "all",
+    options: [
+      "Man",
+      "Woman",
+      "Non-binary",
+      "Prefer not to answer",
+      "You don't have an option that applies to me"
+    ]
+  },
+  {
+    id: "pre_gender_self_describe",
+    prompt: "You don't have an option that applies to me. I identify as",
+    type: "short_text",
+    required: false,
+    condition: "all",
+    placeholder: "Please specify",
+    dependsOnItemId: "pre_gender",
+    dependsOnValue: ["You don't have an option that applies to me"]
+  },
+  {
+    id: "pre_ethnicity",
+    prompt: "Ethnicity",
+    type: "short_text",
+    required: true,
+    condition: "all",
+    placeholder: "Please specify"
+  },
+  {
+    id: "pre_occupation",
+    prompt: "In terms of your current occupation, how would you characterize yourself?",
+    type: "multiple_choice",
+    required: true,
+    condition: "all",
+    options: [
+      "Writer",
+      "Administrative Assistant",
+      "Journalist",
+      "Secretary",
+      "Academic",
+      "Professional",
+      "Technical expert",
+      "Student",
+      "Designer",
+      "Administrator/Manager",
+      "Other"
+    ]
+  },
+  {
+    id: "pre_occupation_other",
+    prompt: "Other occupation",
+    type: "short_text",
+    required: false,
+    condition: "all",
+    placeholder: "Please specify",
+    dependsOnItemId: "pre_occupation",
+    dependsOnValue: ["Other"]
+  },
+  {
+    id: "pre_prior_ai_usage_frequency",
+    prompt: 'How often do you use AI writing tools (e.g., ChatGPT, Grammarly)?',
     type: "likert",
     required: true,
     condition: "all",
     scaleMin: 1,
-    scaleMax: 7,
-    scaleLabels: [
-      "Very low",
-      "Low",
-      "Somewhat low",
-      "Neutral",
-      "Somewhat high",
-      "High",
-      "Very high"
-    ]
+    scaleMax: 5,
+    scaleLabels: ["Never", "Rarely", "Monthly", "Weekly", "Daily"]
   },
   {
-    id: "pre_prior_ai_writing_use",
-    prompt: "Prior AI writing-assistant use",
-    type: "multiple_choice",
-    required: true,
-    condition: "all",
-    options: ["Never", "Rarely", "Monthly", "Weekly", "Daily"]
-  },
-  {
-    id: "pre_emotional_readiness",
-    prompt: "Current emotional readiness for interpersonal message writing tasks",
+    id: "pre_writing_confidence",
+    prompt: "I am confident in my ability to express my feelings in writing",
     type: "likert",
     required: true,
     condition: "all",
@@ -327,6 +418,28 @@ export function StudyWorkspace({
   }, [snapshot?.session.currentState]);
 
   useEffect(() => {
+    if (snapshot?.session.currentState !== "pre_survey") {
+      return;
+    }
+
+    setPreSurveyAnswers((prev) => {
+      if (typeof prev.pre_today_date === "string" && prev.pre_today_date.trim()) {
+        return prev;
+      }
+
+      const today = new Date();
+      const formatted = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(
+        today.getDate()
+      ).padStart(2, "0")}`;
+
+      return {
+        ...prev,
+        pre_today_date: formatted
+      };
+    });
+  }, [snapshot?.session.currentState]);
+
+  useEffect(() => {
     if (!snapshot || snapshot.session.currentState === "post_study_survey") {
       return;
     }
@@ -351,6 +464,10 @@ export function StudyWorkspace({
   }, [clock, snapshot]);
 
   const wordCount = useMemo(() => countWords(editorText), [editorText]);
+  const visiblePreSurveyItems = useMemo(
+    () => filterVisibleSurveyItems(PRE_SURVEY_ITEMS, preSurveyAnswers),
+    [preSurveyAnswers]
+  );
 
   async function startConditionFlow(): Promise<void> {
     if (!snapshot) {
@@ -382,9 +499,20 @@ export function StudyWorkspace({
   }
 
   async function submitPreSurvey(): Promise<void> {
-    const missing = missingRequiredItems(PRE_SURVEY_ITEMS, preSurveyAnswers);
+    const missing = missingRequiredItems(visiblePreSurveyItems, preSurveyAnswers);
     if (missing.length > 0) {
       setError("Please complete all required pre-survey fields.");
+      return;
+    }
+
+    if (preSurveyAnswers.pre_consent !== "Yes, I consent to participate in this study") {
+      setError("You must consent to participate before continuing into the study.");
+      return;
+    }
+
+    const email = typeof preSurveyAnswers.pre_email === "string" ? preSurveyAnswers.pre_email.trim() : "";
+    if (!email || !email.includes("@")) {
+      setError("Please provide a valid email address so we can contact you about the optional interview.");
       return;
     }
 
@@ -505,6 +633,22 @@ export function StudyWorkspace({
 
   function handleEditorChange(nextText: string): void {
     setEditorText(nextText);
+  }
+
+  function handleEditorKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    if (
+      !isTrackedEditingKeystroke({
+        key: event.key,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey
+      })
+    ) {
+      return;
+    }
+
+    setKeystrokeCount((prev) => prev + 1);
+
     if (snapshot?.currentTrial.condition === "ghost_writer" && hasGeneratedDraft) {
       setGhostWriterEditCount((prev) => prev + 1);
     }
@@ -952,23 +1096,26 @@ export function StudyWorkspace({
     const completedRound = Math.max(1, snapshot.currentTrial.order_position - 1);
 
     return (
-      <div className="card" style={{ maxWidth: 760, margin: "0 auto" }}>
-        <h1>Round Complete</h1>
-        <p style={{ color: "black" }}>
-          You&apos;ve completed Round {completedRound} of {snapshot.allTrials.length}. Take a brief moment, then click Next when you&apos;re ready to continue.
-        </p>
-        <div style={{ marginTop: "0.9rem" }}>
-          <button
-            className="primary"
-            type="button"
-            disabled={busy}
-            onClick={() => void transition("scenario_intro")}
-          >
-            Next
-          </button>
+      <>
+        <div className="card" style={{ maxWidth: 760, margin: "0 auto" }}>
+          <h1>Round Complete</h1>
+          <p style={{ color: "black" }}>
+            You&apos;ve completed Round {completedRound} of {snapshot.allTrials.length}. Take a brief moment, then click Next when you&apos;re ready to continue.
+          </p>
+          <div style={{ marginTop: "0.9rem" }}>
+            <button
+              className="primary"
+              type="button"
+              disabled={busy}
+              onClick={() => void transition("scenario_intro")}
+            >
+              Next
+            </button>
+          </div>
+          {error ? <p style={{ color: "var(--warn)", marginTop: "0.6rem" }}>{error}</p> : null}
         </div>
-        {error ? <p style={{ color: "var(--warn)", marginTop: "0.6rem" }}>{error}</p> : null}
-      </div>
+        {portalMode === "participant" ? <StudyContactBar /> : null}
+      </>
     );
   }
 
@@ -997,15 +1144,18 @@ export function StudyWorkspace({
     const finalItems = visibleSurveyItems(finalTemplate, postStudyAnswers);
 
     return (
-      <PostStudySurveySection
-        template={finalTemplate}
-        items={finalItems}
-        answers={postStudyAnswers}
-        busy={busy}
-        error={error}
-        onChange={(itemId, next) => setPostStudyAnswers((prev) => ({ ...prev, [itemId]: next }))}
-        onSubmit={() => void submitPostStudySurvey()}
-      />
+      <>
+        <PostStudySurveySection
+          template={finalTemplate}
+          items={finalItems}
+          answers={postStudyAnswers}
+          busy={busy}
+          error={error}
+          onChange={(itemId, next) => setPostStudyAnswers((prev) => ({ ...prev, [itemId]: next }))}
+          onSubmit={() => void submitPostStudySurvey()}
+        />
+        {portalMode === "participant" ? <StudyContactBar /> : null}
+      </>
     );
   }
 
@@ -1022,7 +1172,7 @@ export function StudyWorkspace({
         currentState={currentState}
         busy={busy}
         error={error}
-        preSurveyItems={PRE_SURVEY_ITEMS}
+        preSurveyItems={visiblePreSurveyItems}
         preSurveyAnswers={preSurveyAnswers}
         practiceSurveyItems={PRACTICE_SURVEY_ITEMS}
         practiceSurveyAnswers={practiceSurveyAnswers}
@@ -1058,105 +1208,108 @@ export function StudyWorkspace({
   };
 
   return (
-    <div className="layout-grid">
-      <StudyHeader
-        portalMode={portalMode}
-        participantAccessCode={participantAccessCode}
-        snapshot={snapshot}
-        currentState={currentState}
-        elapsedSeconds={elapsedSeconds}
-      />
-
-      <div className="workspace-grid">
-        <MainEditorPanel
+    <>
+      <div className="layout-grid">
+        <StudyHeader
+          portalMode={portalMode}
+          participantAccessCode={participantAccessCode}
           snapshot={snapshot}
-          condition={condition}
           currentState={currentState}
-          editorText={editorText}
-          editorEnabled={editorEnabled}
-          busy={busy}
-          isEditorGenerating={isEditorGenerating}
-          isGhostWriterGenerating={isGhostWriterGenerating}
-          editorPreviewSegments={editorPreviewSegments}
-          wordCount={wordCount}
-          error={error}
-          onEditorChange={handleEditorChange}
-          onEditorKeyDown={() => setKeystrokeCount((prev) => prev + 1)}
-          onStartConditionFlow={() => void startConditionFlow()}
-          onCompleteThoughtPartnerDraft={() => void completeThoughtPartnerDraft()}
-          onToFinalEdit={() => void toFinalEdit()}
-          onToSurvey={() => void toSurvey()}
+          elapsedSeconds={elapsedSeconds}
         />
 
-        <AiAssistantPanel
-          condition={condition}
-          currentState={currentState}
-          promptText={getPromptText(condition, currentState)}
-          aiPanelError={aiPanelError}
-          showAiLoadingCard={showAiLoadingCard}
-          aiLoadingCopy={aiLoadingCopy}
-          guidance={guidance}
-          bullets={bullets}
-          busy={busy}
-          hasGeneratedDraft={hasGeneratedDraft}
-          editorText={editorText}
-          isGhostWriterGenerating={isGhostWriterGenerating}
-          isEditorGenerating={isEditorGenerating}
-          isThoughtPartnerGenerating={isThoughtPartnerGenerating}
-          suggestions={suggestions}
-          suggestionActions={suggestionActions}
-          appliedSuggestionText={appliedSuggestionText}
-          modifyingId={modifyingId}
-          modifyText={modifyText}
-          statusColors={statusColors}
-          statusLabels={statusLabels}
-          thoughtPartnerOutput={thoughtPartnerOutput}
-          activeQuestionIndex={activeQuestionIndex}
-          currentQuestion={currentQuestion}
-          questionAnswers={questionAnswers}
-          allQuestionsAnswered={allQuestionsAnswered}
-          onBulletsChange={setBullets}
-          onRunGhostWriterGenerate={() => void runGhostWriterGenerate()}
-          onRunEditorSuggestions={() => void runEditorSuggestions()}
-          onApplySuggestion={(suggestion, action, modifiedText) => {
-            void applySuggestion(suggestion, action, modifiedText);
-            if (action === "modify") {
+        <div className="workspace-grid">
+          <MainEditorPanel
+            snapshot={snapshot}
+            condition={condition}
+            currentState={currentState}
+            editorText={editorText}
+            editorEnabled={editorEnabled}
+            busy={busy}
+            isEditorGenerating={isEditorGenerating}
+            isGhostWriterGenerating={isGhostWriterGenerating}
+            editorPreviewSegments={editorPreviewSegments}
+            wordCount={wordCount}
+            error={error}
+            onEditorChange={handleEditorChange}
+            onEditorKeyDown={handleEditorKeyDown}
+            onStartConditionFlow={() => void startConditionFlow()}
+            onCompleteThoughtPartnerDraft={() => void completeThoughtPartnerDraft()}
+            onToFinalEdit={() => void toFinalEdit()}
+            onToSurvey={() => void toSurvey()}
+          />
+
+          <AiAssistantPanel
+            condition={condition}
+            currentState={currentState}
+            promptText={getPromptText(condition, currentState)}
+            aiPanelError={aiPanelError}
+            showAiLoadingCard={showAiLoadingCard}
+            aiLoadingCopy={aiLoadingCopy}
+            guidance={guidance}
+            bullets={bullets}
+            busy={busy}
+            hasGeneratedDraft={hasGeneratedDraft}
+            editorText={editorText}
+            isGhostWriterGenerating={isGhostWriterGenerating}
+            isEditorGenerating={isEditorGenerating}
+            isThoughtPartnerGenerating={isThoughtPartnerGenerating}
+            suggestions={suggestions}
+            suggestionActions={suggestionActions}
+            appliedSuggestionText={appliedSuggestionText}
+            modifyingId={modifyingId}
+            modifyText={modifyText}
+            statusColors={statusColors}
+            statusLabels={statusLabels}
+            thoughtPartnerOutput={thoughtPartnerOutput}
+            activeQuestionIndex={activeQuestionIndex}
+            currentQuestion={currentQuestion}
+            questionAnswers={questionAnswers}
+            allQuestionsAnswered={allQuestionsAnswered}
+            onBulletsChange={setBullets}
+            onRunGhostWriterGenerate={() => void runGhostWriterGenerate()}
+            onRunEditorSuggestions={() => void runEditorSuggestions()}
+            onApplySuggestion={(suggestion, action, modifiedText) => {
+              void applySuggestion(suggestion, action, modifiedText);
+              if (action === "modify") {
+                setModifyingId(null);
+                setModifyText("");
+              }
+            }}
+            onStartModify={(suggestionId, suggestedChange) => {
+              setModifyingId(suggestionId);
+              setModifyText(suggestedChange);
+            }}
+            onModifyTextChange={setModifyText}
+            onCancelModify={() => {
               setModifyingId(null);
               setModifyText("");
+            }}
+            onToFinalEdit={() => void toFinalEdit()}
+            onStartThoughtPartnerQuestions={() => void startThoughtPartnerQuestions()}
+            onContinueQuestionFlow={continueQuestionFlow}
+            onQuestionAnswerChange={(index, nextText) =>
+              setQuestionAnswers((prev) => ({ ...prev, [index]: nextText }))
             }
-          }}
-          onStartModify={(suggestionId, suggestedChange) => {
-            setModifyingId(suggestionId);
-            setModifyText(suggestedChange);
-          }}
-          onModifyTextChange={setModifyText}
-          onCancelModify={() => {
-            setModifyingId(null);
-            setModifyText("");
-          }}
-          onToFinalEdit={() => void toFinalEdit()}
-          onStartThoughtPartnerQuestions={() => void startThoughtPartnerQuestions()}
-          onContinueQuestionFlow={continueQuestionFlow}
-          onQuestionAnswerChange={(index, nextText) =>
-            setQuestionAnswers((prev) => ({ ...prev, [index]: nextText }))
-          }
-          onFinishReflections={() => void finishReflections()}
-          onToIndependentDrafting={() => void toIndependentDrafting()}
-        />
-      </div>
+            onFinishReflections={() => void finishReflections()}
+            onToIndependentDrafting={() => void toIndependentDrafting()}
+          />
+        </div>
 
-      {currentState === "post_condition_survey" ? (
-        <ConditionSurveySection
-          surveyRef={surveyRef}
-          template={snapshot.conditionSurveyTemplate}
-          items={conditionSurveyItems}
-          answers={conditionSurveyAnswers}
-          busy={busy}
-          error={error}
-          onChange={(itemId, next) => setConditionSurveyAnswers((prev) => ({ ...prev, [itemId]: next }))}
-          onSubmit={() => void submitSurveyAndAdvance()}
-        />
-      ) : null}
-    </div>
+        {currentState === "post_condition_survey" ? (
+          <ConditionSurveySection
+            surveyRef={surveyRef}
+            template={snapshot.conditionSurveyTemplate}
+            items={conditionSurveyItems}
+            answers={conditionSurveyAnswers}
+            busy={busy}
+            error={error}
+            onChange={(itemId, next) => setConditionSurveyAnswers((prev) => ({ ...prev, [itemId]: next }))}
+            onSubmit={() => void submitSurveyAndAdvance()}
+          />
+        ) : null}
+      </div>
+      {portalMode === "participant" ? <StudyContactBar /> : null}
+    </>
   );
 }

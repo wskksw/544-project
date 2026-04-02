@@ -45,7 +45,7 @@ export type AssignmentCell = {
   trialSpecs: TrialSpec[];
 };
 
-export type SurveyItemType = "likert" | "open_text" | "multiple_choice" | "ranking";
+export type SurveyItemType = "likert" | "open_text" | "short_text" | "multiple_choice" | "ranking";
 
 export type SurveyItem = {
   id: string;
@@ -53,6 +53,8 @@ export type SurveyItem = {
   type: SurveyItemType;
   required: boolean;
   condition: RoleCondition | "all";
+  placeholder?: string;
+  inputType?: "text" | "email";
   scaleMin?: number;
   scaleMax?: number;
   scaleLabels?: string[];

@@ -1,5 +1,6 @@
 "use client";
 
+import type { KeyboardEvent } from "react";
 import type {
   Condition,
   HighlightStatus,
@@ -41,7 +42,7 @@ export function MainEditorPanel({
   wordCount: number;
   error: string;
   onEditorChange: (nextText: string) => void;
-  onEditorKeyDown: () => void;
+  onEditorKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onStartConditionFlow: () => void;
   onCompleteThoughtPartnerDraft: () => void;
   onToFinalEdit: () => void;

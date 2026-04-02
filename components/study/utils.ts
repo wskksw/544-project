@@ -319,6 +319,23 @@ export function countWords(text: string): number {
   return trimmed ? trimmed.split(/\s+/).length : 0;
 }
 
+export function isTrackedEditingKeystroke(params: {
+  key: string;
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+}): boolean {
+  if (params.altKey || params.ctrlKey || params.metaKey) {
+    return false;
+  }
+
+  if (params.key.length === 1) {
+    return true;
+  }
+
+  return params.key === "Backspace" || params.key === "Delete" || params.key === "Enter";
+}
+
 export function bulletInputGuidance(condition: Condition): BulletInputGuidance {
   if (condition === "thought_partner") {
     return {

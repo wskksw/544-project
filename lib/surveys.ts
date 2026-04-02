@@ -8,9 +8,11 @@ const surveyItemSchema = z
   .object({
     id: z.string().min(1),
     prompt: z.string().min(1),
-    type: z.enum(["likert", "open_text", "multiple_choice", "ranking"]),
+    type: z.enum(["likert", "open_text", "short_text", "multiple_choice", "ranking"]),
     required: z.boolean().default(true),
     condition: z.enum(["all", "thought_partner", "editor", "ghost_writer"]).default("all"),
+    placeholder: z.string().min(1).optional(),
+    inputType: z.enum(["text", "email"]).optional(),
     scaleMin: z.number().int().min(1).max(21).optional(),
     scaleMax: z.number().int().min(1).max(21).optional(),
     scaleLabels: z.array(z.string().min(1)).optional(),

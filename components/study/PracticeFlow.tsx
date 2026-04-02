@@ -1,6 +1,7 @@
 "use client";
 
 import { SurveyQuestionField, type SurveyValue } from "@/components/surveys/SurveyQuestionField";
+import { StudyContactBar } from "@/components/study/StudyContactBar";
 import type { AiLoadingCopy, PortalMode, StudyState, SurveyItem } from "@/components/study/types";
 
 export function PracticeFlow({
@@ -90,8 +91,21 @@ export function PracticeFlow({
       {currentState === "pre_survey" ? (
         <section className="card" style={{ maxWidth: 860, margin: "0 auto" }}>
           <div style={{ display: "grid", gap: "0.9rem" }}>
-            <h1>Pre-Survey</h1>
-            <p style={{ color: "black" }}>Please complete this short baseline survey before the practice round.</p>
+            <h1>Consent and Pre-Study Survey</h1>
+            <div className="study-guide-panel">
+              <p>
+                Please complete the consent confirmation and baseline questions before the practice round. Plan to
+                finish the system in one sitting.
+              </p>
+              <p>
+                Some of the upcoming writing tasks may feel emotionally demanding. You may pause or withdraw at any
+                time if you no longer want to continue.
+              </p>
+              <p>
+                Enter the email address you want us to use if we invite you to the optional Zoom interview with close
+                friends later in the study.
+              </p>
+            </div>
             <div style={{ display: "grid", gap: "0.8rem" }}>
               {preSurveyItems.map((item) => (
                 <SurveyQuestionField
@@ -250,6 +264,7 @@ export function PracticeFlow({
       ) : null}
 
       {error ? <p style={{ color: "var(--warn)", padding: "0 1rem" }}>{error}</p> : null}
+      {portalMode === "participant" ? <StudyContactBar /> : null}
     </div>
   );
 }

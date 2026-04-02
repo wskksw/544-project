@@ -1,12 +1,15 @@
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 type ItemShape = {
   id: string;
   prompt: string;
-  type: "likert" | "open_text" | "multiple_choice" | "ranking";
+  type: "likert" | "open_text" | "short_text" | "multiple_choice" | "ranking";
   required: boolean;
+  placeholder?: string;
+  inputType?: "text" | "email";
   scaleMin?: number;
   scaleMax?: number;
   scaleLabels?: string[];
@@ -58,6 +61,21 @@ export function SurveyQuestionField({
         <Textarea
           value={typeof value === "string" ? value : ""}
           onChange={(event) => onChange(event.target.value)}
+          disabled={disabled}
+        />
+      </Label>
+    );
+  }
+
+  if (item.type === "short_text") {
+    return (
+      <Label key={item.id}>
+        {label}
+        <Input
+          type={item.inputType ?? "text"}
+          value={typeof value === "string" ? value : ""}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={item.placeholder}
           disabled={disabled}
         />
       </Label>

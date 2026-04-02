@@ -91,6 +91,21 @@ Current `trial_metrics` fields:
 - `ghost_writer_edit_count`
 - `reflection_duration_sec`
 
+Procedural CSV adds suggestion outcome breakdowns:
+- `suggestion_total_count`
+- `suggestion_accept_count`
+- `suggestion_modify_count`
+- `suggestion_reject_count`
+- `suggestion_applied_count`
+- `suggestion_modify_rate`
+- `suggestion_applied_rate`
+
+Metric notes:
+- `keystroke_count` counts text-editing key presses in the main editor: printable characters, `Enter`, `Backspace`, and `Delete`. It excludes modifier keys, navigation keys, and shortcut chords such as `Cmd/Ctrl+V`.
+- `self_authored_text_ratio` is an approximation: `keystroke_count / final character count`, clamped to `0..1`. It should be treated as a rough interaction signal, not a true authorship measure.
+- `suggestion_acceptance_rate` is the strict `accept / total suggestions` rate. Modified suggestions are now exposed separately in the procedural CSV.
+- `ghost_writer_edit_count` counts tracked text-editing keystrokes after the Ghost Writer draft appears. It is not a semantic diff against the original AI draft.
+
 ## Schema Reset Note
 
 The app uses a schema-versioned bootstrap in [`lib/db.ts`](/Users/kevin/school/544-hci/544-project/lib/db.ts).
