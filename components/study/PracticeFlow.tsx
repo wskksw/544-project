@@ -81,6 +81,11 @@ export function PracticeFlow({
       ? "Continue to the interview instructions."
       : "Continue to the practice round.";
   const preSurveyContinueLabel = isInterviewSelected ? "Continue to Interview Instructions" : "Continue to Practice";
+  const practiceSurveyLocked = !practiceNudge;
+  const practiceSurveyTitle = practiceSurveyLocked
+    ? "Get the AI suggestion in the side panel before continuing."
+    : "Moves to the short practice feedback survey.";
+  const useDestructiveErrorColor = error === "Please complete all required pre-survey fields.";
 
   return (
     <div className="layout-grid">
@@ -260,7 +265,7 @@ export function PracticeFlow({
             </section>
             <section className="card">
               <h2>AI Side Panel</h2>
-              <p style={{ color: "var(--muted-foreground)" }}>The AI assistant will appear here once you start the practice task.</p>
+              <p style={{ color: "var(--muted-foreground)" }}>The practice suggestion panel will appear here once you start the task.</p>
             </section>
           </div>
         )
@@ -291,8 +296,8 @@ export function PracticeFlow({
               <button
                 className="primary"
                 type="button"
-                disabled={busy}
-                title="Moves to the short practice feedback survey."
+                disabled={busy || practiceSurveyLocked}
+                title={practiceSurveyTitle}
                 onClick={onContinueToPracticeSurvey}
               >
                 Continue to Practice Survey
@@ -377,7 +382,7 @@ export function PracticeFlow({
         </section>
       ) : null}
 
-      {error ? <p style={{ color: "var(--warn)", padding: "0 1rem" }}>{error}</p> : null}
+      {error ? <p style={{ color: useDestructiveErrorColor ? "var(--destructive)" : "var(--warn)", padding: "0 1rem" }}>{error}</p> : null}
       {portalMode === "participant" ? <StudyContactBar /> : null}
     </div>
   );

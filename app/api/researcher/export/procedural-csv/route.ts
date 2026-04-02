@@ -28,11 +28,46 @@ type ProceduralExportRow = {
   suggestion_applied_rate: number | null;
   ghost_writer_edit_count: number | null;
   reflection_duration_sec: number | null;
+  pre_editor_message_text: string | null;
+  final_message_text: string | null;
   created_at: string;
 };
 
+type ProceduralAiCallRow = {
+  session_id: string;
+  trial_index: number;
+  condition: string;
+  stage: string;
+  validated_json: string | null;
+  created_at: string;
+};
+
+type ProceduralReflectionRow = {
+  session_id: string;
+  trial_index: number;
+  question_order: number;
+  question: string;
+  response: string;
+};
+
+function safeJsonParse(raw: string | null): unknown {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function trialKey(sessionId: string, trialIndex: number): string {
+  return `${sessionId}:${trialIndex}`;
+}
+
 export async function GET(): Promise<NextResponse> {
-  const rows = db
+  const metricRows = db
     .prepare(
       `
       SELECT
@@ -69,6 +104,8 @@ export async function GET(): Promise<NextResponse> {
         END AS suggestion_applied_rate,
         tm.ghost_writer_edit_count,
         tm.reflection_duration_sec,
+        tp.pre_editor_message_text,
+        tp.final_message_text,
         tm.created_at
       FROM trial_metrics tm
       JOIN sessions s ON s.id = tm.session_id
@@ -93,6 +130,99 @@ export async function GET(): Promise<NextResponse> {
       `
     )
     .all() as ProceduralExportRow[];
+
+  const aiCalls = db
+    .prepare(
+      `
+      SELECT
+        ac.session_id,
+        ac.trial_index,
+        ac.condition,
+        ac.stage,
+        ac.validated_json,
+        ac.created_at
+      FROM ai_calls ac
+      JOIN sessions s ON s.id = ac.session_id
+      WHERE s.is_playground = 0
+      ORDER BY ac.created_at ASC, ac.id ASC
+      `
+    )
+    .all() as ProceduralAiCallRow[];
+
+  const reflections = db
+    .prepare(
+      `
+      SELECT
+        tpr.session_id,
+        tpr.trial_index,
+        tpr.question_order,
+        tpr.question,
+        tpr.response
+      FROM thought_partner_reflections tpr
+      JOIN sessions s ON s.id = tpr.session_id
+      WHERE s.is_playground = 0
+      ORDER BY tpr.session_id ASC, tpr.trial_index ASC, tpr.question_order ASC, tpr.id ASC
+      `
+    )
+    .all() as ProceduralReflectionRow[];
+
+  const ghostWriterDraftByTrial = new Map<string, string>();
+  const thoughtPartnerQuestionsByTrial = new Map<string, unknown>();
+
+  for (const aiCall of aiCalls) {
+    const key = trialKey(aiCall.session_id, aiCall.trial_index);
+    const parsed = safeJsonParse(aiCall.validated_json);
+
+    if (aiCall.condition === "ghost_writer" && aiCall.stage === "ai_generation") {
+      const draft =
+        parsed && typeof parsed === "object" && "draft" in parsed && typeof parsed.draft === "string"
+          ? parsed.draft
+          : null;
+      if (draft) {
+        ghostWriterDraftByTrial.set(key, draft);
+      }
+      continue;
+    }
+
+    if (aiCall.condition === "thought_partner" && aiCall.stage === "questions" && Array.isArray(parsed)) {
+      thoughtPartnerQuestionsByTrial.set(key, parsed);
+    }
+  }
+
+  const thoughtPartnerResponsesByTrial = new Map<
+    string,
+    Array<{ question_order: number; question: string; response: string }>
+  >();
+
+  for (const reflection of reflections) {
+    const key = trialKey(reflection.session_id, reflection.trial_index);
+    const current = thoughtPartnerResponsesByTrial.get(key) ?? [];
+    current.push({
+      question_order: reflection.question_order,
+      question: reflection.question,
+      response: reflection.response
+    });
+    thoughtPartnerResponsesByTrial.set(key, current);
+  }
+
+  const rows = metricRows.map((row) => {
+    const key = trialKey(row.session_id, row.trial_index);
+    const condition = row.condition;
+
+    return {
+      ...row,
+      editor_pre_message_text: condition === "editor" ? row.pre_editor_message_text : null,
+      editor_post_message_text: condition === "editor" ? row.final_message_text : null,
+      ghost_writer_ai_draft_text:
+        condition === "ghost_writer" ? ghostWriterDraftByTrial.get(key) ?? row.pre_editor_message_text : null,
+      ghost_writer_post_message_text: condition === "ghost_writer" ? row.final_message_text : null,
+      thought_partner_ai_questions_json:
+        condition === "thought_partner" ? thoughtPartnerQuestionsByTrial.get(key) ?? null : null,
+      thought_partner_human_responses_json:
+        condition === "thought_partner" ? thoughtPartnerResponsesByTrial.get(key) ?? null : null,
+      thought_partner_post_message_text: condition === "thought_partner" ? row.final_message_text : null
+    };
+  });
 
   const csv = toCsv(rows, [
     "participant_id",
@@ -120,6 +250,13 @@ export async function GET(): Promise<NextResponse> {
     "suggestion_applied_rate",
     "ghost_writer_edit_count",
     "reflection_duration_sec",
+    "editor_pre_message_text",
+    "editor_post_message_text",
+    "ghost_writer_ai_draft_text",
+    "ghost_writer_post_message_text",
+    "thought_partner_ai_questions_json",
+    "thought_partner_human_responses_json",
+    "thought_partner_post_message_text",
     "created_at"
   ]);
 

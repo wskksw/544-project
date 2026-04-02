@@ -44,6 +44,7 @@ type TrialRow = {
   status: "pending" | "active" | "completed";
   started_at: string | null;
   completed_at: string | null;
+  pre_editor_message_text: string | null;
   final_message_text: string | null;
 };
 
@@ -115,8 +116,8 @@ function createSessionInternal(participantId: string, trials: TrialPlan[], isPla
   const insertTrial = db.prepare(
     `
     INSERT INTO trial_plan (
-      session_id, trial_index, scenario_id, condition, order_position, status, started_at, completed_at, final_message_text
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+      session_id, trial_index, scenario_id, condition, order_position, status, started_at, completed_at, pre_editor_message_text, final_message_text
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
     `
   );
 
@@ -555,7 +556,7 @@ export function getSessionSnapshot(sessionId: string): {
 
   const allTrials = db
     .prepare(
-      "SELECT trial_index, scenario_id, condition, order_position, status, started_at, completed_at, final_message_text FROM trial_plan WHERE session_id = ? ORDER BY trial_index"
+      "SELECT trial_index, scenario_id, condition, order_position, status, started_at, completed_at, pre_editor_message_text, final_message_text FROM trial_plan WHERE session_id = ? ORDER BY trial_index"
     )
     .all(sessionId) as TrialRow[];
 
@@ -589,6 +590,7 @@ export function transitionSessionState(params: {
   sessionId: string;
   toState: StudyState;
   payload?: unknown;
+  preEditorMessageText?: string;
 }): { currentState: StudyState; trialIndex: number } {
   return db.transaction(() => {
     const snapshot = getSessionSnapshot(params.sessionId);
@@ -602,6 +604,32 @@ export function transitionSessionState(params: {
       throw new Error(
         `Invalid transition for condition ${snapshot.currentTrial.condition}: ${snapshot.session.current_state} -> ${params.toState}`
       );
+    }
+
+    const shouldPersistPreEditorMessage =
+      typeof params.preEditorMessageText === "string" &&
+      params.preEditorMessageText.trim().length > 0 &&
+      (
+        (
+          snapshot.currentTrial.condition === "editor" &&
+          snapshot.session.current_state === "human_drafting" &&
+          params.toState === "ai_revision"
+        ) ||
+        (
+          snapshot.currentTrial.condition === "ghost_writer" &&
+          snapshot.session.current_state === "ai_generation" &&
+          params.toState === "final_edit"
+        )
+      );
+
+    if (shouldPersistPreEditorMessage) {
+      db.prepare(
+        `
+        UPDATE trial_plan
+        SET pre_editor_message_text = ?
+        WHERE session_id = ? AND trial_index = ?
+        `
+      ).run(params.preEditorMessageText, params.sessionId, snapshot.currentTrial.trial_index);
     }
 
     db.prepare("UPDATE sessions SET current_state = ?, updated_at = ? WHERE id = ?").run(

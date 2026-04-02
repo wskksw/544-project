@@ -227,15 +227,15 @@ export async function generateThoughtPartnerOutput(params: {
 The user described the situation in bullet points. Generate exactly 4 reflective questions, one for each dimension below. Each question should be grounded in what the user shared and reference specific details from their bullet points.
 
 Dimensions (ask in this order):
-1. Own feelings: Help the user identify what they are feeling about this situation.
-2. Recipient's perspective: Help the user consider how the recipient might be feeling or experiencing the situation.
-3. Communication intent: Help the user clarify what they want the recipient to feel or understand after reading the message.
-4. Relational context: Help the user reflect on why this matters for the relationship.
-
+Own feelings: Help the user put words to how they feel about this situation.
+Recipient's perspective: Help the user step into the recipient's shoes — what might they be feeling, and what might they want to hear.
+Communication intent: Help the user get specific about what they want the recipient to take away from the message, and why that matters.
+Relational context: Help the user reflect on why this message matters and how it could affect the relationship. Focus on what might change depending on how they say it.
 Rules:
 - Ask ONE question per dimension
 - Each question should be open-ended (not yes/no)
 - Keep questions short and conversational (under 25 words)
+- Questions should make the user pause and think, not just report facts they already know
 - Do NOT give advice, suggestions, or opinions
 - Do NOT reference the message they will write — focus only on their thoughts and feelings
 - If the bullet points are vague, ask questions that help the user surface the specifics themselves

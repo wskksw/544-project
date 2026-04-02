@@ -21,7 +21,8 @@ const bodySchema = z.object({
     "inter_condition_buffer",
     "post_study_survey"
   ]),
-  payload: z.unknown().optional()
+  payload: z.unknown().optional(),
+  preEditorMessageText: z.string().optional()
 });
 
 export async function POST(
@@ -34,7 +35,8 @@ export async function POST(
     const result = transitionSessionState({
       sessionId,
       toState: parsed.toState,
-      payload: parsed.payload
+      payload: parsed.payload,
+      preEditorMessageText: parsed.preEditorMessageText
     });
     return NextResponse.json(result);
   } catch (error) {

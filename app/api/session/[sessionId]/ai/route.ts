@@ -76,7 +76,7 @@ export async function POST(
     if (body.action === "ghost_writer_generate") {
       const bullets = body.bullets?.map((item) => item.trim()).filter(Boolean) ?? [];
       if (bullets.length < 3 || bullets.length > 5) {
-        throw new Error("Ghost-writer requires 3-5 bullets before generation.");
+        throw new Error("Drafter Assistant requires 3-5 bullets before generation.");
       }
 
       const ai = await generateGhostWriterDraft({ bullets });
@@ -111,7 +111,7 @@ export async function POST(
     if (body.action === "editor_suggest") {
       const message = (body.message ?? "").trim();
       if (!message) {
-        throw new Error("Editor requires a full human-written message.");
+        throw new Error("Editor Assistant requires a full human-written message.");
       }
 
       const ai = await generateEditorSuggestions({ message });
@@ -181,7 +181,7 @@ export async function POST(
     // thought_partner_questions
     const bullets = body.bullets?.map((item) => item.trim()).filter(Boolean) ?? [];
     if (bullets.length < 3) {
-      throw new Error("Thought Partner requires initial bullet input.");
+      throw new Error("Brainstorm Assistant requires initial bullet input.");
     }
 
     const ai = await generateThoughtPartnerOutput({ bullets });

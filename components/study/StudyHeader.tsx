@@ -8,14 +8,12 @@ export function StudyHeader({
   portalMode,
   participantAccessCode,
   snapshot,
-  currentState,
-  elapsedSeconds
+  currentState
 }: {
   portalMode: PortalMode;
   participantAccessCode?: string;
   snapshot: SessionPayload;
   currentState: StudyState;
-  elapsedSeconds: number;
 }) {
   return (
     <section className="card" style={{ padding: "0.6rem 1rem" }}>
@@ -40,8 +38,7 @@ export function StudyHeader({
             <>
               <span className="tag">Condition: {getConditionDisplayLabel(snapshot.currentTrial.condition)}</span>{" "}
               <span className="tag">Scenario: {getScenarioLabel(snapshot.currentTrial.scenario_id)}</span>{" "}
-              <span className="tag">State: {currentState}</span>{" "}
-              <span className="tag">Elapsed: {elapsedSeconds}s</span>
+              <span className="tag">State: {currentState}</span>
             </>
           ) : null}
         </div>

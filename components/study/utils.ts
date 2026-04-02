@@ -1,4 +1,5 @@
 import { visibleSurveyItems as filterVisibleSurveyItems } from "@/lib/surveyItems";
+import { getConditionDisplayLabel } from "@/lib/conditionLabels";
 import type { SurveyValue } from "@/components/surveys/SurveyQuestionField";
 import type {
   BulletInputGuidance,
@@ -24,6 +25,8 @@ export function getScenarioLabel(scenarioId: string): string {
 }
 
 export function getPromptText(condition: Condition, state: StudyState): string {
+  const conditionLabel = getConditionDisplayLabel(condition);
+
   if (state === "practice_intro") {
     return "Complete the short practice round to get familiar with the interface.";
   }
@@ -39,7 +42,7 @@ export function getPromptText(condition: Condition, state: StudyState): string {
       scenario_intro: "Read the scenario, then click 'Start When Ready' to begin writing.",
       bullet_input:
         "Write 3-5 bullet points to brief the AI on the **situation** and **what you'd like the message to accomplish**.",
-      ai_generation: "Generate a single Ghost Writer draft from the participant bullets only.",
+      ai_generation: `Generate a single ${conditionLabel} draft from the participant bullets only.`,
       final_edit: "Edit the generated draft freely, then continue to the survey."
     },
     editor: {
@@ -53,9 +56,9 @@ export function getPromptText(condition: Condition, state: StudyState): string {
       scenario_intro: "Read the scenario, then click 'Start When Ready' to begin writing.",
       bullet_input:
         "Write 3-5 bullet points describing the **situation**. The AI will use these to ask you some questions to help you think through what you want to say.",
-      reflection_questions: "Answer the Thought Partner questions one at a time.",
-      reflection_summary: "Review your responses, then draft independently.",
-      independent_drafting: "Write the message independently. The Thought Partner is no longer available.",
+      reflection_questions: "Answer the questions one at a time.",
+      reflection_summary: "Review your responses, then draft the message on your own.",
+      independent_drafting: `Draft the message on your own. The ${conditionLabel} is no longer available.`,
       final_edit: "Finalize the message, then continue to the survey."
     }
   };
@@ -72,7 +75,7 @@ export function getScenarioClosingInstruction(condition: Condition): string {
     return "Write a complete first draft in your own words. Don't worry about getting the wording perfect; the AI will suggest ways to improve it afterward. Aim for roughly 80-150 words. You control the final wording and can keep your original text.";
   }
 
-  return "Write 3-5 bullet points describing the situation, then draft the message independently after the reflection step. Aim for roughly 80-150 words in your final message.";
+  return "Write 3-5 bullet points describing the situation, then draft the message independently after the brainstorm step. Aim for roughly 80-150 words in your final message.";
 }
 
 export function splitBoldText(text: string): Array<{ text: string; bold: boolean }> {
@@ -361,20 +364,11 @@ export function bulletInputGuidance(condition: Condition): BulletInputGuidance {
   }
 
   return {
-    whatAiDoes: [
-      "The Ghost Writer generates one full draft from your bullets.",
-      "There is no regeneration loop in this condition.",
-      "You can freely edit the generated draft before submitting.",
-      "The Ghost Writer only uses your bullets and does not infer extra scenario details."
-    ],
+    whatAiDoes: [],
     tooltip:
-      "The Ghost Writer writes one full draft from your 3-5 bullets. No regenerate button is available. You can then edit the draft before submission.",
-    showExample: true,
-    exampleTitle: "Example goal-oriented bullets",
-    exampleBullets: [
-      "Apologize for forgetting to help with the move.",
-      "Acknowledge that my earlier text apology was not enough.",
-      "Ask to talk this week and offer a concrete way to make it up."
-    ]
+      "The Drafter Assistant writes one full draft from your 3-5 bullets. No regenerate button is available. You can then edit the draft before submission.",
+    showExample: false,
+    exampleTitle: "",
+    exampleBullets: []
   };
 }

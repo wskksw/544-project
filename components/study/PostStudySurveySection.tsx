@@ -24,7 +24,6 @@ export function PostStudySurveySection({
     <div className="card" style={{ maxWidth: 860, margin: "0 auto" }}>
       <h1>{template.title}</h1>
       <p style={{ color: "black" }}>{template.intro}</p>
-      <p style={{ color: "black" }}>All condition blocks are complete. Submit this final survey to finish the study.</p>
 
       <div style={{ display: "grid", gap: "0.8rem" }}>
         {items.map((item) => (

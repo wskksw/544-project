@@ -7,6 +7,7 @@ import type {
   SessionPayload,
   StudyState
 } from "@/components/study/types";
+import { getConditionDisplayLabel } from "@/lib/conditionLabels";
 import { getScenarioClosingInstruction, splitBoldText } from "@/components/study/utils";
 
 type PreviewSegment = { text: string; status: HighlightStatus | null };
@@ -49,6 +50,7 @@ export function MainEditorPanel({
   onToSurvey: () => void;
 }) {
   const taskInstructionSegments = splitBoldText(getScenarioClosingInstruction(condition));
+  const assistantLabel = getConditionDisplayLabel(condition);
   const editorLockCopy = (() => {
     switch (currentState) {
       case "scenario_intro":
@@ -63,18 +65,18 @@ export function MainEditorPanel({
             detail: "Enter 3-5 bullets in the AI panel, then generate a draft to unlock the editor."
           }
           : {
-            banner: "Locked during reflection setup",
-            detail: "Enter 3-5 bullets in the AI panel to begin the reflection step before drafting."
+            banner: "Locked during brainstorm setup",
+            detail: "Enter 3-5 bullets in the AI panel to begin the brainstorm step before drafting."
           };
       case "reflection_questions":
         return {
-          banner: "Locked during reflection",
-          detail: "Answer the reflection questions in the AI panel before the editor unlocks."
+          banner: "Locked during brainstorming",
+          detail: "Answer the questions in the AI panel before the editor unlocks."
         };
       case "reflection_summary":
         return {
-          banner: "Locked until independent drafting",
-          detail: "Review your responses, then click Start Independent Drafting in the AI panel to unlock the editor."
+          banner: "Locked until you draft on your own",
+          detail: "Review your responses, then click Start Drafting on Your Own in the AI panel to unlock the editor."
         };
       case "ai_revision":
         return isEditorGenerating
@@ -139,12 +141,12 @@ export function MainEditorPanel({
                   {condition === "ghost_writer"
                     ? "Your generated draft will appear here once it is ready."
                     : condition === "thought_partner"
-                      ? "Your draft area will open here after the reflection step."
+                      ? "Your draft area will open here after the brainstorm step."
                       : "Your draft will remain here while you review revision suggestions."}
                 </p>
               )}
-              {isGhostWriterGenerating ? <p className="editor-locked-status">Ghost Writer is drafting your message...</p> : null}
-              {isEditorGenerating ? <p className="editor-locked-status">Editor is reviewing your draft...</p> : null}
+              {isGhostWriterGenerating ? <p className="editor-locked-status">{assistantLabel} is drafting your message...</p> : null}
+              {isEditorGenerating ? <p className="editor-locked-status">{assistantLabel} is reviewing your draft...</p> : null}
             </div>
           </div>
         </div>

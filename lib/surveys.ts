@@ -212,7 +212,7 @@ const DEFAULT_TEMPLATES: SurveyTemplate[] = [
     items: [
       {
         id: "overall_preference_ranking",
-        prompt: "Rank the three tools from most preferred to least preferred.",
+        prompt: "Rank the three writing workflows from most to least preferred based on your overall experience.",
         type: "ranking",
         required: true,
         condition: "all",
@@ -220,9 +220,9 @@ const DEFAULT_TEMPLATES: SurveyTemplate[] = [
       },
       {
         id: "overall_preference_rationale",
-        prompt: "Why did you rank them this way? (1-2 sentences)",
+        prompt: "What about your experience led you to rank them this way? (1-5 sentences)",
         type: "open_text",
-        required: false,
+        required: true,
         condition: "all"
       }
     ]

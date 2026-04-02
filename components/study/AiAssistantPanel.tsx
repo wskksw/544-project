@@ -8,6 +8,7 @@ import type {
   StudyState,
   ThoughtPartnerOutput
 } from "@/components/study/types";
+import { getConditionDisplayLabel } from "@/lib/conditionLabels";
 import { splitBoldText } from "@/components/study/utils";
 
 export function AiAssistantPanel({
@@ -94,10 +95,11 @@ export function AiAssistantPanel({
   const allSuggestionsActioned =
     suggestions.length > 0 && Object.values(suggestionActions).every((action) => action !== "pending");
   const promptSegments = splitBoldText(promptText);
+  const assistantLabel = getConditionDisplayLabel(condition);
 
   return (
     <section className="card">
-      <h2>AI Assistant</h2>
+      <h2>{assistantLabel}</h2>
       <p style={{ color: "black" }}>
         {promptSegments.map((segment, index) =>
           segment.bold ? <strong key={`${segment.text}-${index}`}>{segment.text}</strong> : segment.text
@@ -190,7 +192,7 @@ export function AiAssistantPanel({
           {(currentState === "final_edit" || currentState === "post_condition_survey") && hasGeneratedDraft ? (
             <div className="card" style={{ background: "var(--muted)" }}>
               <p>
-                <strong>Draft generated from your bullets:</strong>
+                <strong>Your bullets:</strong>
               </p>
               <ul style={{ marginTop: "0.4rem" }}>
                 {bullets.filter(Boolean).map((bullet, index) => (
@@ -371,7 +373,7 @@ export function AiAssistantPanel({
                 title={guidance.tooltip}
                 onClick={onStartThoughtPartnerQuestions}
               >
-                {isThoughtPartnerGenerating ? "Starting Questions…" : "Start Reflection Questions"}
+                {isThoughtPartnerGenerating ? "Starting Questions…" : "Start Questions"}
               </button>
             </>
           ) : null}
@@ -384,7 +386,6 @@ export function AiAssistantPanel({
                     Question {activeQuestionIndex + 1} of {thoughtPartnerOutput.reflectiveQuestions.length}
                   </strong>
                 </p>
-                <p style={{ fontWeight: 600, fontSize: "0.9em", marginTop: "0.3rem" }}>{currentQuestion?.dimension}</p>
                 <p>{currentQuestion?.question}</p>
                 <textarea
                   value={questionAnswers[activeQuestionIndex] ?? ""}
@@ -420,7 +421,7 @@ export function AiAssistantPanel({
                   (questionAnswers[index] ?? "").trim().length > 0 ? (
                     <div className="card" key={`${question.dimension}-${question.question}`}>
                       <p>
-                        <strong>Answered Q{index + 1}:</strong> {question.dimension}
+                        <strong>Answered Q{index + 1}</strong>
                       </p>
                       <p style={{ marginTop: "0.2rem", fontWeight: 600 }}>{question.question}</p>
                       <p>{questionAnswers[index]}</p>
@@ -440,9 +441,7 @@ export function AiAssistantPanel({
                 <div className="stack-sm" style={{ marginTop: "0.5rem" }}>
                   {thoughtPartnerOutput.reflectiveQuestions.map((question, index) => (
                     <div key={`${question.dimension}-${question.question}`} style={{ marginBottom: "0.6rem" }}>
-                      <p style={{ fontWeight: 600, fontSize: "0.9em" }}>
-                        Q{index + 1}: {question.dimension}
-                      </p>
+                      <p style={{ fontWeight: 600, fontSize: "0.9em" }}>Q{index + 1}</p>
                       <p style={{ marginTop: "0.2rem", fontWeight: 600 }}>{question.question}</p>
                       <p style={{ marginTop: "0.2rem" }}>{questionAnswers[index] ?? ""}</p>
                     </div>
@@ -453,10 +452,10 @@ export function AiAssistantPanel({
                 className="primary"
                 type="button"
                 disabled={busy}
-                title="Closes AI help and moves to independent drafting."
+                title="Closes AI help and lets you draft the message on your own."
                 onClick={onToIndependentDrafting}
               >
-                Start Independent Drafting
+                Start Drafting on Your Own
               </button>
             </>
           ) : null}
@@ -470,9 +469,7 @@ export function AiAssistantPanel({
               <div className="stack-sm" style={{ marginTop: "0.5rem" }}>
                 {thoughtPartnerOutput.reflectiveQuestions.map((question, index) => (
                   <div key={`${question.dimension}-${question.question}`} style={{ marginBottom: "0.6rem" }}>
-                    <p style={{ fontWeight: 600, fontSize: "0.9em" }}>
-                      Q{index + 1}: {question.dimension}
-                    </p>
+                    <p style={{ fontWeight: 600, fontSize: "0.9em" }}>Q{index + 1}</p>
                     <p style={{ marginTop: "0.2rem", fontWeight: 600 }}>{question.question}</p>
                     <p style={{ marginTop: "0.2rem" }}>{questionAnswers[index] ?? ""}</p>
                   </div>

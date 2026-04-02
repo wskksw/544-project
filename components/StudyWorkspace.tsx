@@ -1,6 +1,7 @@
 "use client";
 
 import type { SurveyValue } from "@/components/surveys/SurveyQuestionField";
+import { getConditionDisplayLabel } from "@/lib/conditionLabels";
 import { visibleSurveyItems as filterVisibleSurveyItems } from "@/lib/surveyItems";
 import { AiAssistantPanel } from "@/components/study/AiAssistantPanel";
 import { CONSENT_OPTION_YES, CONSENT_QUESTION, CONSENT_OPTION_NO } from "@/components/study/consent";
@@ -283,7 +284,6 @@ export function StudyWorkspace({
 
   const seenPromptKeys = useRef<Set<string>>(new Set());
   const surveyRef = useRef<HTMLElement>(null);
-  const [clock, setClock] = useState(Date.now());
   const trialIdentity = snapshot ? `${snapshot.session.id}:${snapshot.currentTrial.trial_index}` : "uninitialized";
 
   const fetchJson = useCallback(async <T,>(url: string, init?: RequestInit): Promise<T> => {
@@ -347,11 +347,19 @@ export function StudyWorkspace({
     [sessionId, snapshot]
   );
 
-  async function transition(toState: StudyState, payload?: unknown): Promise<void> {
+  async function transition(
+    toState: StudyState,
+    payload?: unknown,
+    options?: { preEditorMessageText?: string }
+  ): Promise<void> {
     await fetchJson(`/api/session/${sessionId}/transition`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ toState, payload })
+      body: JSON.stringify({
+        toState,
+        payload,
+        preEditorMessageText: options?.preEditorMessageText
+      })
     });
     await loadSnapshot();
   }
@@ -401,11 +409,6 @@ export function StudyWorkspace({
     }
     setEditorHighlightRanges((prev) => (prev.length === 0 ? prev : []));
   }, [snapshot?.currentTrial.condition, snapshot?.session.currentState]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setClock(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     if (!snapshot || snapshot.session.currentState === "post_study_survey") {
@@ -489,13 +492,6 @@ export function StudyWorkspace({
 
     return () => window.clearInterval(handle);
   }, [logEvent, snapshot, snapshot?.session.currentState, snapshot?.currentTrial.started_at]);
-
-  const elapsedSeconds = useMemo(() => {
-    if (!snapshot?.currentTrial.started_at) {
-      return 0;
-    }
-    return Math.max(0, Math.floor((clock - new Date(snapshot.currentTrial.started_at).getTime()) / 1000));
-  }, [clock, snapshot]);
 
   const wordCount = useMemo(() => countWords(editorText), [editorText]);
   const visiblePreSurveyItems = useMemo(
@@ -626,6 +622,10 @@ export function StudyWorkspace({
       setError("Write a short practice reply before continuing.");
       return;
     }
+    if (!practiceNudge) {
+      setError("Get the AI suggestion in the side panel before continuing to the practice survey.");
+      return;
+    }
 
     setBusy(true);
     setError("");
@@ -742,9 +742,9 @@ export function StudyWorkspace({
       });
       setEditorText(json.draft);
       setHasGeneratedDraft(true);
-      await transition("final_edit", { generated: true });
+      await transition("final_edit", { generated: true }, { preEditorMessageText: json.draft });
     } catch (err) {
-      setAiPanelError(err instanceof Error ? err.message : "Ghost Writer generation failed");
+      setAiPanelError(err instanceof Error ? err.message : "Drafter Assistant generation failed");
     } finally {
       setAiActivity(null);
       setBusy(false);
@@ -764,7 +764,7 @@ export function StudyWorkspace({
     setAiPanelError("");
     try {
       setAiActivity("editor_suggest");
-      await transition("ai_revision", { messageLength: editorText.length });
+      await transition("ai_revision", { messageLength: editorText.length }, { preEditorMessageText: editorText });
       const json = await fetchJson<{ suggestions: Suggestion[] }>(`/api/session/${sessionId}/ai`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1086,20 +1086,20 @@ export function StudyWorkspace({
         };
       case "ghost_writer_generate":
         return {
-          eyebrow: "Ghost Writer is drafting",
-          title: "Turning your bullets into a full message",
+          eyebrow: `${getConditionDisplayLabel("ghost_writer")} is drafting`,
+          title: `${getConditionDisplayLabel("ghost_writer")} is turning your bullets into a full message`,
           detail: "A single draft is being composed from the points you provided."
         };
       case "editor_suggest":
         return {
-          eyebrow: "Editor is reviewing",
+          eyebrow: `${getConditionDisplayLabel("editor")} is reviewing`,
           title: "Preparing revision suggestions",
-          detail: "Tone, empathy, specificity, and clarity feedback will appear as editable cards."
+          detail: "Revision suggestions will appear as editable cards in a moment."
         };
       case "thought_partner_questions":
         return {
-          eyebrow: "Thought Partner is thinking",
-          title: "Preparing reflection questions",
+          eyebrow: `${getConditionDisplayLabel("thought_partner")} is getting ready`,
+          title: "Preparing brainstorm questions",
           detail: "The first question will appear here as soon as the prompt is ready."
         };
       default:
@@ -1198,13 +1198,19 @@ export function StudyWorkspace({
               ? {
                 ...item,
                 prompt:
-                  "Rank the three writing workflows from most preferred to least preferred.",
+                  "Rank the three writing workflows from most to least preferred based on your overall experience.",
                 options: [
                   "Workflow A: AI asked reflective questions, then you wrote independently",
                   "Workflow B: You wrote first, then reviewed AI revision suggestions",
                   "Workflow C: You gave bullet points and AI generated one draft"
                 ]
               }
+              : item.id === "overall_preference_rationale"
+                ? {
+                  ...item,
+                  prompt: "What about your experience led you to rank them this way? (1-5 sentences)",
+                  required: true
+                }
               : item
           )
         }
@@ -1291,7 +1297,6 @@ export function StudyWorkspace({
           participantAccessCode={participantAccessCode}
           snapshot={snapshot}
           currentState={currentState}
-          elapsedSeconds={elapsedSeconds}
         />
 
         <div className="workspace-grid">

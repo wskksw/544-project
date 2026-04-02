@@ -21,6 +21,11 @@ function tableExists(tableName: string): boolean {
   return Boolean(row?.ok);
 }
 
+function columnExists(tableName: string, columnName: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+  return rows.some((row) => row.name === columnName);
+}
+
 function recreateSchema(): void {
   db.exec(`
 DROP TABLE IF EXISTS post_study_surveys;
@@ -77,6 +82,7 @@ CREATE TABLE trial_plan (
   status TEXT NOT NULL,
   started_at TEXT,
   completed_at TEXT,
+  pre_editor_message_text TEXT,
   final_message_text TEXT,
   UNIQUE(session_id, trial_index),
   FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -193,6 +199,10 @@ CREATE TABLE IF NOT EXISTS pre_study_surveys (
   FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 `);
+
+  if (!columnExists("trial_plan", "pre_editor_message_text")) {
+    db.exec("ALTER TABLE trial_plan ADD COLUMN pre_editor_message_text TEXT");
+  }
 }
 
 const currentVersion = db.pragma("user_version", { simple: true }) as number;
