@@ -145,6 +145,24 @@ export const PRE_SURVEY_ITEMS: SurveyItem[] = [
     scaleLabels: ["Never", "Rarely", "Monthly", "Weekly", "Daily"]
   },
   {
+    id: "pre_ai_chatbot_writing_attitude",
+    prompt: "How do you feel about using AI chatbots for writing?",
+    type: "likert",
+    required: true,
+    condition: "all",
+    scaleMin: 1,
+    scaleMax: 7,
+    scaleLabels: [
+      "Very negative",
+      "Negative",
+      "Somewhat negative",
+      "Neutral",
+      "Somewhat positive",
+      "Positive",
+      "Very positive"
+    ]
+  },
+  {
     id: "pre_writing_confidence",
     prompt: "I am confident in my ability to express my feelings in writing.",
     type: "likert",

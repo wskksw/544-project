@@ -94,6 +94,12 @@ const CONTRIBUTION_SCALE_LABELS = [
   "A lot",
   "A great deal"
 ];
+const AI_ROLE_OPTIONS = [
+  "Helping me think about what to say",
+  "Helping me refine how to say it",
+  "Generating the message for me",
+  "Other"
+];
 
 const DEFAULT_TEMPLATES: SurveyTemplate[] = [
   {
@@ -147,12 +153,7 @@ const DEFAULT_TEMPLATES: SurveyTemplate[] = [
         type: "multiple_choice",
         required: true,
         condition: "all",
-        options: [
-          "Helping me think about what to say",
-          "Helping me refine how to say it",
-          "Generating the message for me",
-          "Other"
-        ]
+        options: AI_ROLE_OPTIONS
       },
       {
         id: "manip_text_mostly_written_by_me",
@@ -165,7 +166,7 @@ const DEFAULT_TEMPLATES: SurveyTemplate[] = [
       },
       {
         id: "effort_mental_demand",
-        prompt: "How mentally demanding was this condition?",
+        prompt: "How mentally demanding was the task?",
         type: "likert",
         required: true,
         condition: "all",
@@ -175,7 +176,7 @@ const DEFAULT_TEMPLATES: SurveyTemplate[] = [
       },
       {
         id: "effort_effort",
-        prompt: "How hard did you have to work to complete this condition?",
+        prompt: "How hard did you have to work to accomplish your level of performance?",
         type: "likert",
         required: true,
         condition: "all",
@@ -185,7 +186,7 @@ const DEFAULT_TEMPLATES: SurveyTemplate[] = [
       },
       {
         id: "effort_frustration",
-        prompt: "How frustrated, stressed, or annoyed did you feel during this condition?",
+        prompt: "How insecure, discouraged, irritated, stressed, and annoyed were you?",
         type: "likert",
         required: true,
         condition: "all",
@@ -241,6 +242,113 @@ function cloneDefaultTemplates(): SurveyTemplate[] {
   }));
 }
 
+function arraysEqual(left: string[] | undefined, right: string[]): boolean {
+  if (!left || left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
+
+function upgradeLegacyTemplate(template: SurveyTemplate): SurveyTemplate {
+  if (template.id !== "per_condition") {
+    return template;
+  }
+
+  let changed = false;
+  const nextItems: SurveyItem[] = [];
+  let sawAiRoleQuestion = false;
+  let sawAiRoleOtherText = false;
+
+  for (const item of template.items) {
+    if (item.id === "manip_text_mostly_written_by_me") {
+      sawAiRoleOtherText = true;
+      if (
+        item.type !== "open_text" ||
+        item.prompt !== "If you selected Other, please specify. (optional)" ||
+        item.dependsOnItemId !== "manip_ai_helped_how_to_say_it" ||
+        !arraysEqual(item.dependsOnValue, ["Other"])
+      ) {
+        nextItems.push({
+          id: "manip_text_mostly_written_by_me",
+          prompt: "If you selected Other, please specify. (optional)",
+          type: "open_text",
+          required: false,
+          condition: "all",
+          dependsOnItemId: "manip_ai_helped_how_to_say_it",
+          dependsOnValue: ["Other"]
+        });
+        changed = true;
+        continue;
+      }
+    }
+
+    if (item.id === "manip_ai_helped_how_to_say_it") {
+      sawAiRoleQuestion = true;
+      if (!arraysEqual(item.options, AI_ROLE_OPTIONS)) {
+        nextItems.push({
+          ...item,
+          options: [...AI_ROLE_OPTIONS]
+        });
+        changed = true;
+        continue;
+      }
+    }
+
+    if (item.id === "effort_mental_demand" && item.prompt === "How mentally demanding was this condition?") {
+      nextItems.push({
+        ...item,
+        prompt: "How mentally demanding was the task?"
+      });
+      changed = true;
+      continue;
+    }
+
+    if (item.id === "effort_effort" && item.prompt === "How hard did you have to work to complete this condition?") {
+      nextItems.push({
+        ...item,
+        prompt: "How hard did you have to work to accomplish your level of performance?"
+      });
+      changed = true;
+      continue;
+    }
+
+    if (item.id === "effort_frustration" && item.prompt === "How frustrated, stressed, or annoyed did you feel during this condition?") {
+      nextItems.push({
+        ...item,
+        prompt: "How insecure, discouraged, irritated, stressed, and annoyed were you?"
+      });
+      changed = true;
+      continue;
+    }
+
+    nextItems.push(item);
+  }
+
+  if (sawAiRoleQuestion && !sawAiRoleOtherText) {
+    const aiRoleIndex = nextItems.findIndex((item) => item.id === "manip_ai_helped_how_to_say_it");
+    nextItems.splice(aiRoleIndex + 1, 0, {
+      id: "manip_text_mostly_written_by_me",
+      prompt: "If you selected Other, please specify. (optional)",
+      type: "open_text",
+      required: false,
+      condition: "all",
+      dependsOnItemId: "manip_ai_helped_how_to_say_it",
+      dependsOnValue: ["Other"]
+    });
+    changed = true;
+  }
+
+  if (!changed) {
+    return template;
+  }
+
+  return {
+    ...template,
+    items: nextItems
+  };
+}
+
 function normalizeTemplate(template: SurveyTemplate): SurveyTemplate {
   return surveyTemplateSchema.parse(template);
 }
@@ -280,7 +388,18 @@ export function getSurveyTemplate(templateId: SurveyTemplateId): SurveyTemplate 
     return fallback;
   }
 
-  return normalizeTemplate(JSON.parse(row.template_json) as SurveyTemplate);
+  const parsed = normalizeTemplate(JSON.parse(row.template_json) as SurveyTemplate);
+  const upgraded = normalizeTemplate(upgradeLegacyTemplate(parsed));
+
+  if (JSON.stringify(upgraded) !== JSON.stringify(parsed)) {
+    db.prepare("UPDATE survey_templates SET template_json = ?, updated_at = ? WHERE template_id = ?").run(
+      JSON.stringify(upgraded),
+      nowIso(),
+      upgraded.id
+    );
+  }
+
+  return upgraded;
 }
 
 export function listSurveyTemplates(): SurveyTemplate[] {
@@ -291,7 +410,21 @@ export function listSurveyTemplates(): SurveyTemplate[] {
     .all() as Array<{ template_json: string }>;
 
   const templates = rows.map((row) => normalizeTemplate(JSON.parse(row.template_json) as SurveyTemplate));
-  return normalizeTemplateList(templates);
+  const upgraded = templates.map((template) => normalizeTemplate(upgradeLegacyTemplate(template)));
+
+  for (let index = 0; index < templates.length; index += 1) {
+    if (JSON.stringify(templates[index]) === JSON.stringify(upgraded[index])) {
+      continue;
+    }
+
+    db.prepare("UPDATE survey_templates SET template_json = ?, updated_at = ? WHERE template_id = ?").run(
+      JSON.stringify(upgraded[index]),
+      nowIso(),
+      upgraded[index].id
+    );
+  }
+
+  return normalizeTemplateList(upgraded);
 }
 
 export function saveSurveyTemplates(templates: SurveyTemplate[]): SurveyTemplate[] {

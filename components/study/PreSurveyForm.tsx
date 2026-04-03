@@ -3,6 +3,7 @@
 import { SurveyQuestionField, type SurveyValue } from "@/components/surveys/SurveyQuestionField";
 import { ConsentFormContent } from "@/components/study/ConsentFormContent";
 import { CONSENT_OPTION_NO } from "@/components/study/consent";
+import { buttonVariants } from "@/components/ui/button";
 import type { SurveyItem } from "@/components/study/types";
 
 export function PreSurveyForm({
@@ -100,7 +101,12 @@ export function PreSurveyForm({
               </p>
             </div>
             <div>
-              <a href={when2MeetUrl} target="_blank" rel="noreferrer">
+              <a
+                href={when2MeetUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={buttonVariants({ variant: "default" })}
+              >
                 Open When2Meet
               </a>
             </div>
