@@ -1,6 +1,5 @@
 "use client";
 
-import { getConditionDisplayLabel } from "@/lib/conditionLabels";
 import type { PortalMode, SessionPayload, StudyState } from "@/components/study/types";
 import { getScenarioLabel } from "@/components/study/utils";
 
@@ -37,7 +36,7 @@ export function StudyHeader({
           </span>{" "}
           {portalMode === "researcher" ? (
             <>
-              <span className="tag">Condition: {getConditionDisplayLabel(snapshot.currentTrial.condition)}</span>{" "}
+              <span className="tag">Condition: {snapshot.currentTrial.condition}</span>{" "}
               <span className="tag">Scenario: {getScenarioLabel(snapshot.currentTrial.scenario_id)}</span>{" "}
               <span className="tag">State: {currentState}</span>
             </>

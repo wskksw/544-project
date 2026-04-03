@@ -12,7 +12,6 @@ import {
   TableHeaderCell,
   TableRow
 } from "@/components/ui/table";
-import { getConditionDisplayLabel } from "@/lib/conditionLabels";
 import type { RoleCondition } from "@/lib/types";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -356,7 +355,7 @@ export function ResearcherControlPanel() {
                 <span>
                   Sequence:{" "}
                   {cell.trialSpecs
-                    .map((trial) => `${getConditionDisplayLabel(trial.condition)} / ${scenarioLabel(trial.scenarioId)}`)
+                    .map((trial) => `${trial.condition} / ${scenarioLabel(trial.scenarioId)}`)
                     .join(" -> ")}
                 </span>
                 <span>Filled: {cell.count}</span>

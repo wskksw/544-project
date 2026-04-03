@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { getConditionDisplayLabel } from "@/lib/conditionLabels";
 import { visibleSurveyItems as filterVisibleSurveyItems } from "@/lib/surveyItems";
 import type { RoleCondition, SurveyItem, SurveyTemplate } from "@/lib/types";
 import Link from "next/link";
@@ -295,9 +294,9 @@ export function ResearcherSurveyArea() {
                             }
                           >
                             <option value="all">all</option>
-                            <option value="thought_partner">{getConditionDisplayLabel("thought_partner")} (thought_partner)</option>
-                            <option value="editor">{getConditionDisplayLabel("editor")} (editor)</option>
-                            <option value="ghost_writer">{getConditionDisplayLabel("ghost_writer")} (ghost_writer)</option>
+                            <option value="thought_partner">thought_partner</option>
+                            <option value="editor">editor</option>
+                            <option value="ghost_writer">ghost_writer</option>
                           </Select>
                         </Label>
 
@@ -471,9 +470,9 @@ export function ResearcherSurveyArea() {
                   value={previewCondition}
                   onChange={(event) => setPreviewCondition(event.target.value as RoleCondition)}
                 >
-                  <option value="thought_partner">{getConditionDisplayLabel("thought_partner")}</option>
-                  <option value="editor">{getConditionDisplayLabel("editor")}</option>
-                  <option value="ghost_writer">{getConditionDisplayLabel("ghost_writer")}</option>
+                  <option value="thought_partner">thought_partner</option>
+                  <option value="editor">editor</option>
+                  <option value="ghost_writer">ghost_writer</option>
                 </Select>
               </Label>
 
