@@ -419,56 +419,32 @@ ul {
   background: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
 }
 
-.consent-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: grid;
-  place-items: center;
-  padding: 0.5rem;
-  background: rgb(15 23 42 / 0.42);
-  backdrop-filter: blur(4px);
-  overflow-y: auto;
+.pre-survey-card {
+  width: min(1120px, 100%);
+  margin: 0 auto;
 }
 
-.consent-modal {
-  width: min(1120px, calc(100vw - 1rem));
-  max-height: min(95vh, 980px);
+.consent-inline-shell {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
   gap: 1rem;
-  padding: 1rem 1.1rem;
-  border: 1px solid rgb(255 255 255 / 0.5);
+  padding: 1.15rem 1.2rem;
+  border: 1px solid #d7e3f8;
   border-radius: calc(var(--radius) + 0.2rem);
   background: linear-gradient(180deg, #fff 0%, #f8fbff 100%);
-  box-shadow: 0 28px 80px rgb(15 23 42 / 0.24);
-  overflow: hidden;
 }
 
-.consent-modal-header {
+.consent-inline-header {
   display: grid;
   gap: 0.45rem;
 }
 
-.consent-modal-header h1,
+.consent-inline-header h2,
 .consent-copy-section h2 {
   margin: 0;
 }
 
-.consent-modal-kicker {
-  color: #1d4ed8;
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.consent-modal-body {
-  display: grid;
-  gap: 0.95rem;
-  overflow: auto;
-  min-height: 0;
-  padding-right: 0.2rem;
+.consent-inline-header p {
+  color: var(--muted-foreground);
 }
 
 .consent-copy-section {
@@ -797,11 +773,6 @@ td {
 @media (max-width: 640px) {
   main {
     padding-bottom: 8.5rem;
-  }
-
-  .consent-modal {
-    width: calc(100vw - 0.5rem);
-    padding: 0.85rem;
   }
 
   .study-contact-bar-inner {

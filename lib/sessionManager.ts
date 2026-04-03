@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { DEFAULT_TARGET_N, getCounterbalanceCells } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { logEvent, logTransition, nowIso } from "@/lib/logger";
+import { getPreSurveyValidationError } from "@/lib/preSurvey";
 import { getScenarioById } from "@/lib/scenarios";
 import { canTransition } from "@/lib/stateMachine";
 import { ensureSurveyTemplatesSeeded } from "@/lib/surveys";
@@ -52,6 +53,14 @@ type PreStudySurveyRow = {
   responses_json: string;
 };
 
+type StudyEnrollmentResult = {
+  sessionId: string;
+  status: SessionStatus;
+  participantLabel: string;
+  accessCode: string;
+  reusedExistingSlot: boolean;
+};
+
 const ACCESS_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 function assertTargetN(targetN: number): void {
@@ -99,6 +108,183 @@ function generateUniqueAccessCode(): string {
   }
 
   throw new Error("Failed to generate unique access code.");
+}
+
+function getNextParticipantLabel(): string {
+  const row = db
+    .prepare("SELECT COUNT(*) as count FROM participants WHERE id NOT LIKE 'playground-%'")
+    .get() as { count: number };
+
+  return `P${String(row.count + 1).padStart(3, "0")}`;
+}
+
+function chooseAssignmentCell(targetN: number): AssignmentCell {
+  const counts = db
+    .prepare("SELECT cell_id as cellId, COUNT(*) as count FROM assignments GROUP BY cell_id")
+    .all() as Array<{ cellId: string; count: number }>;
+
+  const countMap = new Map<string, number>();
+  for (const row of counts) {
+    countMap.set(row.cellId, row.count);
+  }
+
+  const quotaPerCell = targetN / 3;
+  const candidates = getCounterbalanceCells()
+    .map((cell) => ({ cell, count: countMap.get(cell.cellId) ?? 0 }))
+    .filter((entry) => entry.count < quotaPerCell)
+    .sort((a, b) => (a.count === b.count ? a.cell.cellId.localeCompare(b.cell.cellId) : a.count - b.count));
+
+  if (candidates.length === 0) {
+    throw new Error(`All assignment cells are full for target N=${targetN}. Increase target N.`);
+  }
+
+  return candidates[0].cell;
+}
+
+function createAssignedParticipantInternal(params: {
+  participantLabel?: string;
+  targetN: number;
+  claimedAt?: string | null;
+}): {
+  participant: { id: string; participantLabel: string; accessCode: string };
+  assignment: AssignmentRow;
+  trials: TrialPlan[];
+  sessionId: string;
+} {
+  const participantLabel = (params.participantLabel ?? "").trim() || getNextParticipantLabel();
+  const selectedCell = chooseAssignmentCell(params.targetN);
+  const participantId = randomUUID();
+  const accessCode = generateUniqueAccessCode();
+  const createdAt = nowIso();
+  const claimedAt = params.claimedAt ?? null;
+
+  db.prepare(
+    "INSERT INTO participants (id, participant_label, access_code, created_at, claimed_at) VALUES (?, ?, ?, ?, ?)"
+  ).run(participantId, participantLabel, accessCode, createdAt, claimedAt);
+
+  db.prepare(
+    "INSERT INTO assignments (participant_id, cell_id, target_n, assigned_manually, created_at) VALUES (?, ?, ?, ?, ?)"
+  ).run(participantId, selectedCell.cellId, params.targetN, 0, createdAt);
+
+  const assignment = db
+    .prepare("SELECT * FROM assignments WHERE participant_id = ?")
+    .get(participantId) as AssignmentRow | undefined;
+
+  if (!assignment) {
+    throw new Error("Failed to persist assignment.");
+  }
+
+  const trials = buildTrials(selectedCell);
+  const sessionId = createSessionInternal(participantId, trials, false);
+
+  return {
+    participant: { id: participantId, participantLabel, accessCode },
+    assignment,
+    trials,
+    sessionId
+  };
+}
+
+function claimParticipantInternal(participantId: string, claimedAt: string): void {
+  db.prepare("UPDATE participants SET claimed_at = COALESCE(claimed_at, ?) WHERE id = ?").run(claimedAt, participantId);
+}
+
+function getResolvedSessionForParticipant(participantId: string): {
+  sessionId: string;
+  status: SessionStatus;
+  participantLabel: string;
+  accessCode: string;
+} {
+  const participant = db
+    .prepare("SELECT id, participant_label, access_code FROM participants WHERE id = ?")
+    .get(participantId) as { id: string; participant_label: string; access_code: string } | undefined;
+
+  if (!participant) {
+    throw new Error("Participant not found.");
+  }
+
+  const session = db
+    .prepare(
+      `
+      SELECT id, status
+      FROM sessions
+      WHERE participant_id = ? AND is_playground = 0
+      ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, updated_at DESC
+      LIMIT 1
+      `
+    )
+    .get(participant.id) as { id: string; status: SessionStatus } | undefined;
+
+  if (!session) {
+    throw new Error("No study session found for this participant.");
+  }
+
+  return {
+    sessionId: session.id,
+    status: session.status,
+    participantLabel: participant.participant_label,
+    accessCode: participant.access_code
+  };
+}
+
+function claimOrCreateStudySessionInternal(claimedAt: string): StudyEnrollmentResult {
+  const existing = db
+    .prepare(
+      `
+      SELECT p.id as participant_id
+      FROM participants p
+      JOIN assignments a ON a.participant_id = p.id
+      JOIN sessions s ON s.id = (
+        SELECT s2.id
+        FROM sessions s2
+        WHERE s2.participant_id = p.id AND s2.is_playground = 0
+        ORDER BY CASE WHEN s2.status = 'active' THEN 0 ELSE 1 END, s2.updated_at DESC
+        LIMIT 1
+      )
+      LEFT JOIN pre_study_surveys prs ON prs.session_id = s.id
+      WHERE p.claimed_at IS NULL
+        AND s.status = 'active'
+        AND s.current_state = 'pre_survey'
+        AND prs.id IS NULL
+      ORDER BY a.created_at ASC
+      LIMIT 1
+      `
+    )
+    .get() as { participant_id: string } | undefined;
+
+  if (existing) {
+    claimParticipantInternal(existing.participant_id, claimedAt);
+    return {
+      ...getResolvedSessionForParticipant(existing.participant_id),
+      reusedExistingSlot: true
+    };
+  }
+
+  const targetInfo = getTargetNInfo();
+  if (targetInfo.distinctCount > 1) {
+    throw new Error("Inconsistent target N values detected in assignments. Reset data before continuing.");
+  }
+
+  const currentTargetN = targetInfo.count > 0 ? targetInfo.currentTargetN : null;
+  const targetN = currentTargetN ?? DEFAULT_TARGET_N;
+  assertTargetN(targetN);
+
+  if (currentTargetN !== null && targetInfo.count >= targetN) {
+    throw new Error("Study enrollment is full. If you already started, resume with your email address.");
+  }
+
+  const created = createAssignedParticipantInternal({
+    targetN,
+    claimedAt
+  });
+
+  return {
+    sessionId: created.sessionId,
+    status: "active",
+    participantLabel: created.participant.participantLabel,
+    accessCode: created.participant.accessCode,
+    reusedExistingSlot: false
+  };
 }
 
 function createSessionInternal(participantId: string, trials: TrialPlan[], isPlayground: boolean): string {
@@ -222,8 +408,6 @@ export function registerParticipant(params: {
   trials: TrialPlan[];
   sessionId: string;
 } {
-  const participantLabel = (params.participantLabel ?? "").trim() || `Participant ${randomCodeSegment(3)}`;
-
   return db.transaction(() => {
     const targetInfo = getTargetNInfo();
     if (targetInfo.distinctCount > 1) {
@@ -244,55 +428,10 @@ export function registerParticipant(params: {
       db.prepare("UPDATE assignments SET target_n = ?").run(targetN);
     }
 
-    const counts = db
-      .prepare("SELECT cell_id as cellId, COUNT(*) as count FROM assignments GROUP BY cell_id")
-      .all() as Array<{ cellId: string; count: number }>;
-
-    const countMap = new Map<string, number>();
-    for (const row of counts) {
-      countMap.set(row.cellId, row.count);
-    }
-
-    const quotaPerCell = targetN / 3;
-    const candidates = getCounterbalanceCells()
-      .map((cell) => ({ cell, count: countMap.get(cell.cellId) ?? 0 }))
-      .filter((entry) => entry.count < quotaPerCell)
-      .sort((a, b) => (a.count === b.count ? a.cell.cellId.localeCompare(b.cell.cellId) : a.count - b.count));
-
-    if (candidates.length === 0) {
-      throw new Error(`All assignment cells are full for target N=${targetN}. Increase target N.`);
-    }
-
-    const selectedCell = candidates[0].cell;
-    const participantId = randomUUID();
-    const accessCode = generateUniqueAccessCode();
-    const createdAt = nowIso();
-
-    db.prepare(
-      "INSERT INTO participants (id, participant_label, access_code, created_at) VALUES (?, ?, ?, ?)"
-    ).run(participantId, participantLabel, accessCode, createdAt);
-
-    db.prepare(
-      "INSERT INTO assignments (participant_id, cell_id, target_n, assigned_manually, created_at) VALUES (?, ?, ?, ?, ?)"
-    ).run(participantId, selectedCell.cellId, targetN, 0, createdAt);
-
-    const assignment = db
-      .prepare("SELECT * FROM assignments WHERE participant_id = ?")
-      .get(participantId) as AssignmentRow | undefined;
-
-    if (!assignment) {
-      throw new Error("Failed to persist assignment.");
-    }
-
-    const trials = buildTrials(selectedCell);
-    const sessionId = createSessionInternal(participantId, trials, false);
-
-    return {
-      participant: { id: participantId, participantLabel, accessCode },
-      assignment,
-      trials,
-      sessionId
-    };
+    return createAssignedParticipantInternal({
+      participantLabel: params.participantLabel,
+      targetN
+    });
   })();
 }
 
@@ -421,19 +560,18 @@ export function restartParticipantSession(params: {
     }
 
     const now = nowIso();
-    db.prepare("UPDATE sessions SET status = 'completed', updated_at = ? WHERE participant_id = ? AND is_playground = 0 AND status = 'active'").run(
-      now,
-      participantId
-    );
+    // Remove all non-playground study data so the slot returns to a clean "not started" state.
+    db.prepare("DELETE FROM sessions WHERE participant_id = ? AND is_playground = 0").run(participantId);
+    db.prepare("UPDATE participants SET claimed_at = NULL WHERE id = ?").run(participantId);
 
     const sessionId = createSessionInternal(participantId, buildTrials(cell), false);
 
     logEvent({
       sessionId,
       trialIndex: null,
-      eventType: "participant_session_restarted",
-      payload: { participantId },
-      timestamp: nowIso()
+      eventType: "participant_slot_reset",
+      payload: { participantId, resetTo: "pre_survey" },
+      timestamp: now
     });
 
     return {
@@ -501,36 +639,73 @@ export function resolveSessionByAccessCode(accessCode: string): {
     throw new Error("Access code is required.");
   }
 
-  const participant = db
-    .prepare("SELECT id, participant_label, access_code FROM participants WHERE UPPER(access_code) = UPPER(?)")
-    .get(normalized) as { id: string; participant_label: string; access_code: string } | undefined;
+  return db.transaction(() => {
+    const participant = db
+      .prepare("SELECT id FROM participants WHERE UPPER(access_code) = UPPER(?)")
+      .get(normalized) as { id: string } | undefined;
 
-  if (!participant) {
-    throw new Error("Access code not found.");
+    if (!participant) {
+      throw new Error("Access code not found.");
+    }
+
+    claimParticipantInternal(participant.id, nowIso());
+    return getResolvedSessionForParticipant(participant.id);
+  })();
+}
+
+export function resolveSessionByEmail(email: string): {
+  sessionId: string;
+  status: SessionStatus;
+  participantLabel: string;
+  accessCode: string;
+} {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) {
+    throw new Error("Email is required.");
   }
 
-  const session = db
-    .prepare(
-      `
-      SELECT id, status
-      FROM sessions
-      WHERE participant_id = ? AND is_playground = 0
-      ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, updated_at DESC
-      LIMIT 1
-      `
-    )
-    .get(participant.id) as { id: string; status: SessionStatus } | undefined;
+  return db.transaction(() => {
+    const candidates = db
+      .prepare(
+        `
+        SELECT prs.responses_json, s.participant_id
+        FROM pre_study_surveys prs
+        JOIN sessions s ON s.id = prs.session_id
+        WHERE s.is_playground = 0
+        ORDER BY CASE WHEN s.status = 'active' THEN 0 ELSE 1 END, s.updated_at DESC, prs.created_at DESC
+        `
+      )
+      .all() as Array<{ responses_json: string; participant_id: string }>;
 
-  if (!session) {
-    throw new Error("No study session found for this participant.");
-  }
+    const matchedParticipantIds = new Set<string>();
+    for (const candidate of candidates) {
+      try {
+        const parsed = JSON.parse(candidate.responses_json) as Record<string, unknown>;
+        const candidateEmail = typeof parsed.pre_email === "string" ? parsed.pre_email.trim().toLowerCase() : "";
+        if (candidateEmail === normalized) {
+          matchedParticipantIds.add(candidate.participant_id);
+        }
+      } catch {
+        continue;
+      }
+    }
 
-  return {
-    sessionId: session.id,
-    status: session.status,
-    participantLabel: participant.participant_label,
-    accessCode: participant.access_code
-  };
+    if (matchedParticipantIds.size === 0) {
+      throw new Error("No study session found for that email.");
+    }
+
+    if (matchedParticipantIds.size > 1) {
+      throw new Error("Multiple study sessions match that email. Please contact the researcher for help resuming.");
+    }
+
+    const participantId = matchedParticipantIds.values().next().value;
+    if (!participantId) {
+      throw new Error("No study session found for that email.");
+    }
+
+    claimParticipantInternal(participantId, nowIso());
+    return getResolvedSessionForParticipant(participantId);
+  })();
 }
 
 export function getSessionSnapshot(sessionId: string): {
@@ -908,49 +1083,86 @@ export function submitPractice(params: {
   })();
 }
 
+function submitPreStudySurveyInternal(params: {
+  sessionId: string;
+  responses: Record<string, unknown>;
+  timestamp: string;
+}): { currentState: StudyState; currentTrialIndex: number } {
+  const snapshot = getSessionSnapshot(params.sessionId);
+
+  if (snapshot.session.status !== "active") {
+    throw new Error("Session is not active.");
+  }
+
+  if (snapshot.session.is_playground) {
+    throw new Error("Playground sessions do not use the pre-survey.");
+  }
+
+  if (snapshot.session.current_state !== "pre_survey") {
+    throw new Error("Pre-survey is not currently active.");
+  }
+
+  db.prepare("INSERT INTO pre_study_surveys (session_id, responses_json, created_at) VALUES (?, ?, ?)").run(
+    params.sessionId,
+    JSON.stringify(params.responses),
+    params.timestamp
+  );
+
+  db.prepare("UPDATE sessions SET current_state = 'practice_intro', updated_at = ? WHERE id = ?").run(
+    params.timestamp,
+    params.sessionId
+  );
+
+  logEvent({
+    sessionId: params.sessionId,
+    trialIndex: null,
+    eventType: "pre_survey_submitted",
+    payload: { surveyResponses: params.responses },
+    timestamp: params.timestamp
+  });
+
+  return {
+    currentState: "practice_intro",
+    currentTrialIndex: snapshot.session.current_trial_index
+  };
+}
+
+export function enrollStudyParticipant(params: {
+  responses: Record<string, unknown>;
+}): StudyEnrollmentResult {
+  return db.transaction((): StudyEnrollmentResult => {
+    const validationError = getPreSurveyValidationError(params.responses);
+    if (validationError) {
+      throw new Error(validationError);
+    }
+
+    const claimedAt = nowIso();
+    const enrollment = claimOrCreateStudySessionInternal(claimedAt);
+    submitPreStudySurveyInternal({
+      sessionId: enrollment.sessionId,
+      responses: params.responses,
+      timestamp: claimedAt
+    });
+
+    return enrollment;
+  })();
+}
+
 export function submitPreStudySurvey(params: {
   sessionId: string;
   responses: Record<string, unknown>;
 }): { currentState: StudyState; currentTrialIndex: number } {
   return db.transaction((): { currentState: StudyState; currentTrialIndex: number } => {
-    const snapshot = getSessionSnapshot(params.sessionId);
-
-    if (snapshot.session.status !== "active") {
-      throw new Error("Session is not active.");
+    const validationError = getPreSurveyValidationError(params.responses);
+    if (validationError) {
+      throw new Error(validationError);
     }
 
-    if (snapshot.session.is_playground) {
-      throw new Error("Playground sessions do not use the pre-survey.");
-    }
-
-    if (snapshot.session.current_state !== "pre_survey") {
-      throw new Error("Pre-survey is not currently active.");
-    }
-
-    const timestamp = nowIso();
-    db.prepare("INSERT INTO pre_study_surveys (session_id, responses_json, created_at) VALUES (?, ?, ?)").run(
-      params.sessionId,
-      JSON.stringify(params.responses),
-      timestamp
-    );
-
-    db.prepare("UPDATE sessions SET current_state = 'practice_intro', updated_at = ? WHERE id = ?").run(
-      timestamp,
-      params.sessionId
-    );
-
-    logEvent({
+    return submitPreStudySurveyInternal({
       sessionId: params.sessionId,
-      trialIndex: null,
-      eventType: "pre_survey_submitted",
-      payload: { surveyResponses: params.responses },
-      timestamp
+      responses: params.responses,
+      timestamp: nowIso()
     });
-
-    return {
-      currentState: "practice_intro",
-      currentTrialIndex: snapshot.session.current_trial_index
-    };
   })();
 }
 
@@ -966,6 +1178,8 @@ export function listAssignmentsAndSessions(): {
     participants: Array<{
       participantId: string;
       participantLabel: string;
+      attachedName: string | null;
+      attachedEmail: string | null;
       accessCode: string;
       sessionId: string | null;
       sessionStatus: string;
@@ -981,13 +1195,13 @@ export function listAssignmentsAndSessions(): {
   const assignmentRows = db
     .prepare(
       `
-      SELECT a.*, p.participant_label, p.access_code
+      SELECT a.*, p.participant_label, p.access_code, p.claimed_at
       FROM assignments a
       JOIN participants p ON p.id = a.participant_id
       ORDER BY a.created_at DESC
       `
     )
-    .all() as Array<AssignmentRow & { participant_label: string; access_code: string }>;
+    .all() as Array<AssignmentRow & { participant_label: string; access_code: string; claimed_at: string | null }>;
 
   const sessionRows = db
     .prepare(
@@ -1017,6 +1231,23 @@ export function listAssignmentsAndSessions(): {
     });
   }
 
+  const preStudySessionRows = db
+    .prepare("SELECT session_id, responses_json FROM pre_study_surveys")
+    .all() as Array<{ session_id: string; responses_json: string }>;
+  const preStudySessionIds = new Set(preStudySessionRows.map((row) => row.session_id));
+  const preStudyIdentityBySessionId = new Map<string, { fullName: string | null; email: string | null }>();
+  for (const row of preStudySessionRows) {
+    try {
+      const parsed = JSON.parse(row.responses_json) as Record<string, unknown>;
+      preStudyIdentityBySessionId.set(row.session_id, {
+        fullName: typeof parsed.pre_full_name === "string" && parsed.pre_full_name.trim() ? parsed.pre_full_name.trim() : null,
+        email: typeof parsed.pre_email === "string" && parsed.pre_email.trim() ? parsed.pre_email.trim() : null
+      });
+    } catch {
+      preStudyIdentityBySessionId.set(row.session_id, { fullName: null, email: null });
+    }
+  }
+
   const latestSessionByParticipant = new Map<string, Record<string, unknown>>();
   for (const session of sessionRows) {
     const participantId = String(session.participant_id);
@@ -1028,7 +1259,10 @@ export function listAssignmentsAndSessions(): {
   const byCell = new Map<string, Array<{
     participantId: string;
     participantLabel: string;
+    attachedName: string | null;
+    attachedEmail: string | null;
     accessCode: string;
+    slotStatus: "unclaimed" | "active" | "completed";
     sessionId: string | null;
     sessionStatus: string;
     currentState: StudyState | null;
@@ -1041,14 +1275,26 @@ export function listAssignmentsAndSessions(): {
     const latestSession = latestSessionByParticipant.get(assignment.participant_id);
     const sessionId = latestSession ? String(latestSession.id) : null;
     const progress = sessionId ? progressMap.get(sessionId) : undefined;
+    const attachedIdentity = sessionId ? preStudyIdentityBySessionId.get(sessionId) : undefined;
+    const sessionStatus = latestSession ? String(latestSession.status) : "none";
+    const currentState = latestSession ? (String(latestSession.current_state) as StudyState) : null;
+    const slotStatus: "unclaimed" | "active" | "completed" =
+      sessionStatus === "completed"
+        ? "completed"
+        : !assignment.claimed_at && currentState === "pre_survey" && sessionId && !preStudySessionIds.has(sessionId)
+          ? "unclaimed"
+          : "active";
 
     const participantStatus = {
       participantId: assignment.participant_id,
       participantLabel: assignment.participant_label,
+      attachedName: attachedIdentity?.fullName ?? null,
+      attachedEmail: attachedIdentity?.email ?? null,
       accessCode: assignment.access_code,
+      slotStatus,
       sessionId,
-      sessionStatus: latestSession ? String(latestSession.status) : "none",
-      currentState: latestSession ? (String(latestSession.current_state) as StudyState) : null,
+      sessionStatus,
+      currentState,
       currentTrialIndex: latestSession ? Number(latestSession.current_trial_index) : null,
       completedTrials: progress?.completedTrials ?? 0,
       totalTrials: progress?.totalTrials ?? 0

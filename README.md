@@ -99,6 +99,7 @@ Procedural CSV adds suggestion outcome breakdowns:
 - `suggestion_applied_count`
 - `suggestion_modify_rate`
 - `suggestion_applied_rate`
+- `editor_ai_suggestions_json` for editor-condition trials, including each suggestion's original text, suggested text, category, rationale, final action state, and modified text when used
 
 Metric notes:
 - `keystroke_count` counts text-editing key presses in the main editor: printable characters, `Enter`, `Backspace`, and `Delete`. It excludes modifier keys, navigation keys, and shortcut chords such as `Cmd/Ctrl+V`.

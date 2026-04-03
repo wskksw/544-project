@@ -1,13 +1,13 @@
 "use client";
 
 import { SurveyQuestionField, type SurveyValue } from "@/components/surveys/SurveyQuestionField";
-import { ConsentFormContent } from "@/components/study/ConsentFormContent";
+import { CONSENT_OPTION_NO } from "@/components/study/consent";
+import { PreSurveyForm } from "@/components/study/PreSurveyForm";
 import { StudyContactBar } from "@/components/study/StudyContactBar";
 import type { AiLoadingCopy, PortalMode, StudyState, SurveyItem } from "@/components/study/types";
 
 export function PracticeFlow({
   portalMode,
-  participantAccessCode,
   sessionId,
   participantLabel,
   accessCode,
@@ -41,7 +41,6 @@ export function PracticeFlow({
   practiceWordCount
 }: {
   portalMode: PortalMode;
-  participantAccessCode?: string;
   sessionId: string;
   participantLabel: string;
   accessCode: string;
@@ -75,11 +74,14 @@ export function PracticeFlow({
   practiceWordCount: number;
 }) {
   const preSurveyBlockedForAiInexperience = preSurveyAnswers.pre_prior_ai_usage_frequency === 1;
-  const preSurveyContinueTitle = preSurveyBlockedForAiInexperience
-    ? "Participants who have never used AI writing tools are not eligible for this study."
-    : isInterviewSelected
-      ? "Continue to the interview instructions."
-      : "Continue to the practice round.";
+  const preSurveyBlockedForMissingConsent = preSurveyAnswers.pre_consent === CONSENT_OPTION_NO;
+  const preSurveyContinueTitle = preSurveyBlockedForMissingConsent
+    ? "You must consent to participate before continuing."
+    : preSurveyBlockedForAiInexperience
+      ? "Participants who have never used AI writing tools are not eligible for this study."
+      : isInterviewSelected
+        ? "Continue to the interview instructions."
+        : "Continue to the practice round.";
   const preSurveyContinueLabel = isInterviewSelected ? "Continue to Interview Instructions" : "Continue to Practice";
   const practiceSurveyLocked = !practiceNudge;
   const practiceSurveyTitle = practiceSurveyLocked
@@ -93,9 +95,12 @@ export function PracticeFlow({
         <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
           <div>
             {portalMode === "participant" ? (
-              <>
-                <strong>Access Code:</strong> {participantAccessCode ?? accessCode}
-              </>
+              <div style={{ display: "grid", gap: "0.2rem" }}>
+                <div>
+                  <strong>Resume later:</strong> Enter your email on the study access page.
+                </div>
+                <span className="text-muted">Use the same email address you entered in the pre-study survey.</span>
+              </div>
             ) : (
               <>
                 <strong>Session:</strong> {sessionId.slice(0, 8)} | <strong>Participant:</strong> {participantLabel} ({accessCode})
@@ -117,78 +122,21 @@ export function PracticeFlow({
       </section>
 
       {currentState === "pre_survey" ? (
-        <section className="card" style={{ maxWidth: 860, margin: "0 auto" }}>
-          <div style={{ display: "grid", gap: "0.9rem" }}>
-            <h1>Consent and Pre-Study Survey</h1>
-            <div className="consent-modal-body">
-              <ConsentFormContent />
-            </div>
-            <div style={{ display: "grid", gap: "1.15rem" }}>
-              {preSurveyItems.map((item) => (
-                <div key={item.id} style={{ display: "grid", gap: "0.55rem" }}>
-                  {item.id === "pre_writing_confidence" ? (
-                    <p style={{ margin: 0, color: "black", fontSize: "0.95rem" }}>
-                      For this question, please indicate how much you agree with the statement.
-                    </p>
-                  ) : null}
-                  {item.id === "pre_followup_interview" ? (
-                    <p style={{ margin: 0, color: "black", fontSize: "0.95rem" }}>
-                      If you choose Yes, you will add your availability now and then continue with the researcher-led interview flow.
-                    </p>
-                  ) : null}
-                  <SurveyQuestionField
-                    item={item}
-                    value={preSurveyAnswers[item.id]}
-                    disabled={busy}
-                    onChange={(next) => onPreSurveyChange(item.id, next)}
-                  />
-                </div>
-              ))}
-              {isInterviewSelected ? (
-                <div
-                  style={{
-                    display: "grid",
-                    gap: "0.8rem",
-                    padding: "1rem",
-                    borderRadius: "0.85rem",
-                    background: "var(--muted)"
-                  }}
-                >
-                  <div style={{ display: "grid", gap: "0.45rem" }}>
-                    <h2 style={{ margin: 0, fontSize: "1.05rem" }}>Interview scheduling</h2>
-                    <p style={{ margin: 0, color: "black" }}>
-                      Please add every time slot that works for you before you continue. After that, the next page will give you the
-                      researcher-led session instructions.
-                    </p>
-                  </div>
-                  <div>
-                    <a href={when2MeetUrl} target="_blank" rel="noreferrer">
-                      Open When2Meet
-                    </a>
-                  </div>
-                  <label style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem", color: "black" }}>
-                    <input
-                      type="checkbox"
-                      checked={interviewAvailabilityConfirmed}
-                      disabled={busy}
-                      onChange={(event) => onInterviewAvailabilityConfirmedChange(event.target.checked)}
-                    />
-                    <span>I added my availability on When2Meet.</span>
-                  </label>
-                </div>
-              ) : null}
-            </div>
-            <button
-              className="primary"
-              type="button"
-              disabled={busy}
-              title={preSurveyContinueTitle}
-              style={preSurveyBlockedForAiInexperience ? { cursor: "not-allowed" } : undefined}
-              onClick={onSubmitPreSurvey}
-            >
-              {preSurveyContinueLabel}
-            </button>
-          </div>
+        <section className="card pre-survey-card">
+          <PreSurveyForm
+            items={preSurveyItems}
+            answers={preSurveyAnswers}
+            busy={busy}
+            isInterviewSelected={isInterviewSelected}
+            when2MeetUrl={when2MeetUrl}
+            interviewAvailabilityConfirmed={interviewAvailabilityConfirmed}
+            onAnswerChange={onPreSurveyChange}
+            onInterviewAvailabilityConfirmedChange={onInterviewAvailabilityConfirmedChange}
+            onSubmit={onSubmitPreSurvey}
+            submitLabel={preSurveyContinueLabel}
+            submitTitle={preSurveyContinueTitle}
+            disableSubmit={preSurveyBlockedForAiInexperience || preSurveyBlockedForMissingConsent}
+          />
         </section>
       ) : null}
 

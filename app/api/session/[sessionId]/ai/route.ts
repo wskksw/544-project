@@ -9,7 +9,7 @@ import {
 import { db } from "@/lib/db";
 import { logEvent, nowIso } from "@/lib/logger";
 import { getSessionSnapshot } from "@/lib/sessionManager";
-import type { RoleCondition } from "@/lib/types";
+import type { RoleCondition, StudyState } from "@/lib/types";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -37,6 +37,19 @@ function expectedCondition(action: z.infer<typeof bodySchema>["action"]): RoleCo
   return null; // practice_nudge has no condition requirement
 }
 
+function expectedState(action: z.infer<typeof bodySchema>["action"]): StudyState {
+  switch (action) {
+    case "ghost_writer_generate":
+      return "ai_generation";
+    case "editor_suggest":
+      return "ai_revision";
+    case "thought_partner_questions":
+      return "reflection_questions";
+    case "practice_nudge":
+      return "practice_task";
+  }
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ sessionId: string }> }
@@ -47,6 +60,17 @@ export async function POST(
 
     const snapshot = getSessionSnapshot(sessionId);
     const trial = snapshot.currentTrial;
+    const requiredState = expectedState(body.action);
+
+    if (snapshot.session.status !== "active") {
+      throw new Error("AI actions are only available while the session is active.");
+    }
+
+    if (snapshot.session.current_state !== requiredState) {
+      throw new Error(
+        `Action ${body.action} is only available during ${requiredState}, not ${snapshot.session.current_state}.`
+      );
+    }
 
     const condition = expectedCondition(body.action);
     if (condition !== null && trial.condition !== condition) {
@@ -76,7 +100,7 @@ export async function POST(
     if (body.action === "ghost_writer_generate") {
       const bullets = body.bullets?.map((item) => item.trim()).filter(Boolean) ?? [];
       if (bullets.length < 3 || bullets.length > 5) {
-        throw new Error("Drafter Assistant requires 3-5 bullets before generation.");
+        throw new Error("AI assistant requires 3-5 bullets before generation.");
       }
 
       const ai = await generateGhostWriterDraft({ bullets });
@@ -111,7 +135,7 @@ export async function POST(
     if (body.action === "editor_suggest") {
       const message = (body.message ?? "").trim();
       if (!message) {
-        throw new Error("Editor Assistant requires a full human-written message.");
+        throw new Error("AI assistant requires a full human-written message.");
       }
 
       const ai = await generateEditorSuggestions({ message });
@@ -181,7 +205,7 @@ export async function POST(
     // thought_partner_questions
     const bullets = body.bullets?.map((item) => item.trim()).filter(Boolean) ?? [];
     if (bullets.length < 3) {
-      throw new Error("Brainstorm Assistant requires initial bullet input.");
+      throw new Error("AI assistant requires initial bullet input.");
     }
 
     const ai = await generateThoughtPartnerOutput({ bullets });

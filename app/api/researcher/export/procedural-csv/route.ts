@@ -50,6 +50,19 @@ type ProceduralReflectionRow = {
   response: string;
 };
 
+type ProceduralEditorSuggestionRow = {
+  session_id: string;
+  trial_index: number;
+  ai_call_created_at: string;
+  suggestion_id: number;
+  original_segment: string;
+  suggested_change: string;
+  category: string;
+  reason_text: string;
+  action_status: string;
+  user_modified_text: string | null;
+};
+
 function safeJsonParse(raw: string | null): unknown {
   if (!raw) {
     return null;
@@ -166,7 +179,43 @@ export async function GET(): Promise<NextResponse> {
     )
     .all() as ProceduralReflectionRow[];
 
+  const editorSuggestionRows = db
+    .prepare(
+      `
+      SELECT
+        ac.session_id,
+        ac.trial_index,
+        ac.created_at AS ai_call_created_at,
+        es.id AS suggestion_id,
+        es.segment_original AS original_segment,
+        es.suggested_change,
+        es.category,
+        es.reason_text,
+        es.action_status,
+        es.user_modified_text
+      FROM editor_suggestions es
+      JOIN ai_calls ac ON ac.id = es.ai_call_id
+      JOIN sessions s ON s.id = ac.session_id
+      WHERE s.is_playground = 0
+      ORDER BY ac.session_id ASC, ac.trial_index ASC, ac.created_at ASC, es.id ASC
+      `
+    )
+    .all() as ProceduralEditorSuggestionRow[];
+
   const ghostWriterDraftByTrial = new Map<string, string>();
+  const editorSuggestionsByTrial = new Map<
+    string,
+    Array<{
+      suggestion_id: number;
+      ai_call_created_at: string;
+      original_segment: string;
+      suggested_change: string;
+      category: string;
+      reason_text: string;
+      action_status: string;
+      user_modified_text: string | null;
+    }>
+  >();
   const thoughtPartnerQuestionsByTrial = new Map<string, unknown>();
 
   for (const aiCall of aiCalls) {
@@ -205,6 +254,22 @@ export async function GET(): Promise<NextResponse> {
     thoughtPartnerResponsesByTrial.set(key, current);
   }
 
+  for (const editorSuggestion of editorSuggestionRows) {
+    const key = trialKey(editorSuggestion.session_id, editorSuggestion.trial_index);
+    const current = editorSuggestionsByTrial.get(key) ?? [];
+    current.push({
+      suggestion_id: editorSuggestion.suggestion_id,
+      ai_call_created_at: editorSuggestion.ai_call_created_at,
+      original_segment: editorSuggestion.original_segment,
+      suggested_change: editorSuggestion.suggested_change,
+      category: editorSuggestion.category,
+      reason_text: editorSuggestion.reason_text,
+      action_status: editorSuggestion.action_status,
+      user_modified_text: editorSuggestion.user_modified_text
+    });
+    editorSuggestionsByTrial.set(key, current);
+  }
+
   const rows = metricRows.map((row) => {
     const key = trialKey(row.session_id, row.trial_index);
     const condition = row.condition;
@@ -213,6 +278,7 @@ export async function GET(): Promise<NextResponse> {
       ...row,
       editor_pre_message_text: condition === "editor" ? row.pre_editor_message_text : null,
       editor_post_message_text: condition === "editor" ? row.final_message_text : null,
+      editor_ai_suggestions_json: condition === "editor" ? editorSuggestionsByTrial.get(key) ?? [] : null,
       ghost_writer_ai_draft_text:
         condition === "ghost_writer" ? ghostWriterDraftByTrial.get(key) ?? row.pre_editor_message_text : null,
       ghost_writer_post_message_text: condition === "ghost_writer" ? row.final_message_text : null,
@@ -252,6 +318,7 @@ export async function GET(): Promise<NextResponse> {
     "reflection_duration_sec",
     "editor_pre_message_text",
     "editor_post_message_text",
+    "editor_ai_suggestions_json",
     "ghost_writer_ai_draft_text",
     "ghost_writer_post_message_text",
     "thought_partner_ai_questions_json",

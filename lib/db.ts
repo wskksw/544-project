@@ -200,6 +200,10 @@ CREATE TABLE IF NOT EXISTS pre_study_surveys (
 );
 `);
 
+  if (!columnExists("participants", "claimed_at")) {
+    db.exec("ALTER TABLE participants ADD COLUMN claimed_at TEXT");
+  }
+
   if (!columnExists("trial_plan", "pre_editor_message_text")) {
     db.exec("ALTER TABLE trial_plan ADD COLUMN pre_editor_message_text TEXT");
   }

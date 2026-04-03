@@ -2,9 +2,9 @@
 
 import type { SurveyValue } from "@/components/surveys/SurveyQuestionField";
 import { getConditionDisplayLabel } from "@/lib/conditionLabels";
+import { PRE_SURVEY_ITEMS, WHEN2MEET_URL, getPreSurveyValidationError, getTodayDateString } from "@/lib/preSurvey";
 import { visibleSurveyItems as filterVisibleSurveyItems } from "@/lib/surveyItems";
 import { AiAssistantPanel } from "@/components/study/AiAssistantPanel";
-import { CONSENT_OPTION_YES, CONSENT_QUESTION, CONSENT_OPTION_NO } from "@/components/study/consent";
 import { ConditionSurveySection } from "@/components/study/ConditionSurveySection";
 import { MainEditorPanel } from "@/components/study/MainEditorPanel";
 import { PostStudySurveySection } from "@/components/study/PostStudySurveySection";
@@ -62,187 +62,12 @@ const PRACTICE_SURVEY_ITEMS: SurveyItem[] = [
     condition: "all"
   }
 ];
-
-const ETHNICITY_OPTIONS = [
-  "White (e.g., European origins)",
-  "South Asian (e.g., Indian, Pakistani, Sri Lankan)",
-  "Chinese",
-  "Black (e.g., African American, African Canadian, Caribbean origins)",
-  "Filipino",
-  "Arab",
-  "Latin American, Central or South American origins",
-  "Southeast Asian (e.g., Vietnamese, Cambodian, Laotian, Thai)",
-  "West Asian (e.g., Iranian, Afghan)",
-  "Korean",
-  "Japanese",
-  "Indigenous (e.g., First Nation, Inuit, Metis, Alaska Native)",
-  "Pacific Islander (e.g., Hawaiian, Samoan)",
-  "Other (please specify)",
-  "Prefer not to answer"
-];
-
-const PRE_SURVEY_ITEMS: SurveyItem[] = [
-  {
-    id: "pre_consent",
-    prompt: CONSENT_QUESTION,
-    type: "radio",
-    required: true,
-    condition: "all",
-    options: [CONSENT_OPTION_YES, CONSENT_OPTION_NO]
-  },
-  {
-    id: "pre_full_name",
-    prompt: "Full name",
-    type: "short_text",
-    required: true,
-    condition: "all",
-    placeholder: "First and last name"
-  },
-  {
-    id: "pre_today_date",
-    prompt: "Today's date (YYYY/MM/DD)",
-    type: "short_text",
-    required: true,
-    condition: "all",
-    placeholder: "2026/04/01"
-  },
-  {
-    id: "pre_email",
-    prompt: "Your email address",
-    type: "short_text",
-    required: true,
-    condition: "all",
-    placeholder: "name@example.com",
-    inputType: "email"
-  },
-  {
-    id: "pre_age_group",
-    prompt: "In what age group are you?",
-    type: "multiple_choice",
-    required: true,
-    condition: "all",
-    options: ["18 and under", "20 - 29", "30 - 39", "40 - 49", "50 - 59", "60 +"]
-  },
-  {
-    id: "pre_gender",
-    prompt: "Gender",
-    type: "multiple_choice",
-    required: true,
-    condition: "all",
-    options: [
-      "Man",
-      "Woman",
-      "Non-binary",
-      "Prefer not to answer",
-      "You don't have an option that applies to me"
-    ]
-  },
-  {
-    id: "pre_gender_self_describe",
-    prompt: "You don't have an option that applies to me. I identify as",
-    type: "short_text",
-    required: false,
-    condition: "all",
-    placeholder: "Please specify",
-    dependsOnItemId: "pre_gender",
-    dependsOnValue: ["You don't have an option that applies to me"]
-  },
-  {
-    id: "pre_ethnicity",
-    prompt: "Ethnicity",
-    type: "multiple_choice",
-    required: true,
-    condition: "all",
-    options: ETHNICITY_OPTIONS
-  },
-  {
-    id: "pre_ethnicity_other",
-    prompt: "Other ethnicity",
-    type: "short_text",
-    required: false,
-    condition: "all",
-    placeholder: "Please specify",
-    dependsOnItemId: "pre_ethnicity",
-    dependsOnValue: ["Other (please specify)"]
-  },
-  {
-    id: "pre_occupation",
-    prompt: "In terms of your current occupation, how would you characterize yourself?",
-    type: "multiple_choice",
-    required: true,
-    condition: "all",
-    options: [
-      "Writer",
-      "Administrative Assistant",
-      "Journalist",
-      "Secretary",
-      "Academic",
-      "Professional",
-      "Technical expert",
-      "Student",
-      "Designer",
-      "Administrator/Manager",
-      "Other"
-    ]
-  },
-  {
-    id: "pre_occupation_other",
-    prompt: "Other occupation",
-    type: "short_text",
-    required: false,
-    condition: "all",
-    placeholder: "Please specify",
-    dependsOnItemId: "pre_occupation",
-    dependsOnValue: ["Other"]
-  },
-  {
-    id: "pre_prior_ai_usage_frequency",
-    prompt: 'How often do you use AI writing tools (e.g., ChatGPT, Grammarly)?',
-    type: "likert",
-    required: true,
-    condition: "all",
-    scaleMin: 1,
-    scaleMax: 5,
-    scaleLabels: ["Never", "Rarely", "Monthly", "Weekly", "Daily"]
-  },
-  {
-    id: "pre_writing_confidence",
-    prompt: "I am confident in my ability to express my feelings in writing.",
-    type: "likert",
-    required: true,
-    condition: "all",
-    scaleMin: 1,
-    scaleMax: 7,
-    scaleLabels: [
-      "Strongly disagree",
-      "Disagree",
-      "Somewhat disagree",
-      "Neutral",
-      "Somewhat agree",
-      "Agree",
-      "Strongly agree"
-    ]
-  },
-  {
-    id: "pre_followup_interview",
-    prompt: "Would you be willing to participate in a follow-up interview?",
-    type: "multiple_choice",
-    required: true,
-    condition: "all",
-    options: ["Yes", "No"]
-  }
-];
-
-const WHEN2MEET_URL = "https://www.when2meet.com/?35925525-Lbjiy";
-
 export function StudyWorkspace({
   sessionId,
-  portalMode = "researcher",
-  participantAccessCode
+  portalMode = "researcher"
 }: {
   sessionId: string;
   portalMode?: PortalMode;
-  participantAccessCode?: string;
 }) {
   const [snapshot, setSnapshot] = useState<SessionPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -268,7 +93,9 @@ export function StudyWorkspace({
   const [postStudyAnswers, setPostStudyAnswers] = useState<Record<string, SurveyValue>>({});
   const [practiceText, setPracticeText] = useState("");
   const [practiceSurveyAnswers, setPracticeSurveyAnswers] = useState<Record<string, SurveyValue>>({});
-  const [preSurveyAnswers, setPreSurveyAnswers] = useState<Record<string, SurveyValue>>({});
+  const [preSurveyAnswers, setPreSurveyAnswers] = useState<Record<string, SurveyValue>>(() => ({
+    pre_today_date: getTodayDateString()
+  }));
   const [interviewAvailabilityConfirmed, setInterviewAvailabilityConfirmed] = useState(false);
   const [interviewZoomConfirmed, setInterviewZoomConfirmed] = useState(false);
 
@@ -464,14 +291,9 @@ export function StudyWorkspace({
         return prev;
       }
 
-      const today = new Date();
-      const formatted = `${today.getFullYear()}/${String(today.getMonth() + 1).padStart(2, "0")}/${String(
-        today.getDate()
-      ).padStart(2, "0")}`;
-
       return {
         ...prev,
-        pre_today_date: formatted
+        pre_today_date: getTodayDateString()
       };
     });
   }, [snapshot?.session.currentState]);
@@ -542,25 +364,9 @@ export function StudyWorkspace({
   }
 
   async function submitPreSurvey(): Promise<void> {
-    const missing = missingRequiredItems(visiblePreSurveyItems, preSurveyAnswers);
-    if (missing.length > 0) {
-      setError("Please complete all required pre-survey fields.");
-      return;
-    }
-
-    if (preSurveyAnswers.pre_consent !== CONSENT_OPTION_YES) {
-      setError("You must consent to participate before continuing into the study.");
-      return;
-    }
-
-    const email = typeof preSurveyAnswers.pre_email === "string" ? preSurveyAnswers.pre_email.trim() : "";
-    if (!email || !email.includes("@")) {
-      setError("Please provide a valid email address so we can contact you about the optional interview.");
-      return;
-    }
-
-    if (preSurveyAnswers.pre_prior_ai_usage_frequency === 1) {
-      setError("Participants who have never used AI writing tools are not eligible for this study.");
+    const validationError = getPreSurveyValidationError(preSurveyAnswers);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -744,7 +550,7 @@ export function StudyWorkspace({
       setHasGeneratedDraft(true);
       await transition("final_edit", { generated: true }, { preEditorMessageText: json.draft });
     } catch (err) {
-      setAiPanelError(err instanceof Error ? err.message : "Drafter Assistant generation failed");
+      setAiPanelError(err instanceof Error ? err.message : "AI assistant generation failed");
     } finally {
       setAiActivity(null);
       setBusy(false);
@@ -1240,7 +1046,6 @@ export function StudyWorkspace({
     return (
       <PracticeFlow
         portalMode={portalMode}
-        participantAccessCode={participantAccessCode}
         sessionId={snapshot.session.id}
         participantLabel={snapshot.session.participantLabel}
         accessCode={snapshot.session.accessCode}
@@ -1294,7 +1099,6 @@ export function StudyWorkspace({
       <div className="layout-grid">
         <StudyHeader
           portalMode={portalMode}
-          participantAccessCode={participantAccessCode}
           snapshot={snapshot}
           currentState={currentState}
         />

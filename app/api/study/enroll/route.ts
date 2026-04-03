@@ -1,16 +1,15 @@
-import { resolveSessionByEmail } from "@/lib/sessionManager";
+import { enrollStudyParticipant } from "@/lib/sessionManager";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 const bodySchema = z.object({
-  email: z.string().trim().email("Please enter a valid email address.")
+  responses: z.record(z.unknown())
 });
 
 export async function POST(request: Request): Promise<NextResponse> {
   try {
     const parsed = bodySchema.parse(await request.json());
-    const result = resolveSessionByEmail(parsed.email);
-    return NextResponse.json(result);
+    return NextResponse.json(enrollStudyParticipant({ responses: parsed.responses }));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 400 });

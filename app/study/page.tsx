@@ -1,38 +1,110 @@
 "use client";
 
-import { ConsentFormContent } from "@/components/study/ConsentFormContent";
-import { CONSENT_OPTION_NO, CONSENT_OPTION_YES, CONSENT_QUESTION } from "@/components/study/consent";
+import type { SurveyValue } from "@/components/surveys/SurveyQuestionField";
+import { PreSurveyForm } from "@/components/study/PreSurveyForm";
+import { CONSENT_OPTION_NO } from "@/components/study/consent";
 import { StudyContactBar } from "@/components/study/StudyContactBar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PRE_SURVEY_ITEMS, WHEN2MEET_URL, getPreSurveyValidationError, getTodayDateString, getVisiblePreSurveyItems } from "@/lib/preSurvey";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export default function StudyLoginPage() {
-  const [accessCode, setAccessCode] = useState("");
+  const [email, setEmail] = useState("");
+  const [showEnrollmentForm, setShowEnrollmentForm] = useState(false);
+  const [preSurveyAnswers, setPreSurveyAnswers] = useState<Record<string, SurveyValue>>(() => ({
+    pre_today_date: getTodayDateString()
+  }));
+  const [interviewAvailabilityConfirmed, setInterviewAvailabilityConfirmed] = useState(false);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [consentChoice, setConsentChoice] = useState("");
-  const [consentOpen, setConsentOpen] = useState(true);
+  const [loadingAction, setLoadingAction] = useState<"enroll" | "resume" | null>(null);
   const router = useRouter();
 
-  async function handleLogin(): Promise<void> {
-    const normalized = accessCode.trim().toUpperCase();
-    if (!normalized) {
-      setError("Access code is required.");
+  const isInterviewSelected = preSurveyAnswers.pre_followup_interview === "Yes";
+  const visiblePreSurveyItems = getVisiblePreSurveyItems(preSurveyAnswers);
+  const preSurveyBlockedForAiInexperience = preSurveyAnswers.pre_prior_ai_usage_frequency === 1;
+  const preSurveyBlockedForMissingConsent = preSurveyAnswers.pre_consent === CONSENT_OPTION_NO;
+  const enrollSubmitTitle = preSurveyBlockedForMissingConsent
+    ? "You must consent to participate before continuing."
+    : preSurveyBlockedForAiInexperience
+      ? "Participants who have never used AI writing tools are not eligible for this study."
+      : isInterviewSelected
+        ? "Submit the pre-study survey and continue to the interview instructions."
+        : "Submit the pre-study survey and continue to the practice round.";
+
+  function handleOpenEnrollmentForm(): void {
+    setShowEnrollmentForm(true);
+    setError("");
+  }
+
+  function handlePreSurveyChange(itemId: string, next: SurveyValue): void {
+    setPreSurveyAnswers((current) => ({
+      ...current,
+      [itemId]: next
+    }));
+
+    if (itemId === "pre_followup_interview" && next !== "Yes") {
+      setInterviewAvailabilityConfirmed(false);
+    }
+  }
+
+  async function handleEnroll(): Promise<void> {
+    const validationError = getPreSurveyValidationError(preSurveyAnswers);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
-    setLoading(true);
+    if (isInterviewSelected && !interviewAvailabilityConfirmed) {
+      setError("Please confirm that you added your availability on When2Meet before continuing.");
+      return;
+    }
+
+    const responses: Record<string, unknown> = {};
+    for (const item of PRE_SURVEY_ITEMS) {
+      responses[item.id] = preSurveyAnswers[item.id] ?? null;
+    }
+
+    setLoadingAction("enroll");
+    setError("");
+
+    try {
+      const response = await fetch("/api/study/enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ responses })
+      });
+      const json = (await response.json()) as { accessCode?: string; error?: string };
+      if (!response.ok || !json.accessCode) {
+        throw new Error(json.error ?? "Unable to start the study");
+      }
+
+      router.push(`/study/${json.accessCode}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    } finally {
+      setLoadingAction(null);
+    }
+  }
+
+  async function handleLogin(): Promise<void> {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) {
+      setError("Email is required.");
+      return;
+    }
+
+    setLoadingAction("resume");
     setError("");
 
     try {
       const response = await fetch("/api/study/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessCode: normalized })
+        body: JSON.stringify({ email: normalized })
       });
       const json = (await response.json()) as { accessCode?: string; error?: string };
       if (!response.ok || !json.accessCode) {
@@ -43,67 +115,12 @@ export default function StudyLoginPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
-      setLoading(false);
+      setLoadingAction(null);
     }
   }
 
   return (
     <main className="page-stack study-public-shell">
-      {consentOpen ? (
-        <div className="consent-modal-backdrop" role="presentation">
-          <section
-            className="consent-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="consent-modal-title"
-          >
-            <div className="consent-modal-header">
-              <h1 id="consent-modal-title">Consent Form</h1>
-            </div>
-
-            <div className="consent-modal-body">
-              <ConsentFormContent />
-            </div>
-
-            <div className="consent-copy-section">
-              <p>
-                <strong>{CONSENT_QUESTION}</strong>
-              </p>
-
-              <label className="consent-check-row">
-                <input
-                  type="radio"
-                  name="consent-choice"
-                  checked={consentChoice === CONSENT_OPTION_YES}
-                  onChange={() => setConsentChoice(CONSENT_OPTION_YES)}
-                />
-                <span>{CONSENT_OPTION_YES}</span>
-              </label>
-
-              <label className="consent-check-row">
-                <input
-                  type="radio"
-                  name="consent-choice"
-                  checked={consentChoice === CONSENT_OPTION_NO}
-                  onChange={() => setConsentChoice(CONSENT_OPTION_NO)}
-                />
-                <span>{CONSENT_OPTION_NO}</span>
-              </label>
-
-              {consentChoice === CONSENT_OPTION_NO ? (
-                <p className="text-warning">You cannot continue to the access code page unless you consent to participate.</p>
-              ) : null}
-            </div>
-
-            <div className="row-wrap">
-              <Button disabled={consentChoice !== CONSENT_OPTION_YES} onClick={() => setConsentOpen(false)}>
-                Continue to Access Code
-              </Button>
-            </div>
-          </section>
-        </div>
-      ) : null}
-
       <Card style={{ maxWidth: 720, margin: "0 auto" }}>
         <CardHeader>
           <CardTitle>Study Access</CardTitle>
@@ -120,35 +137,66 @@ export default function StudyLoginPage() {
               follow-up interview, the full commitment is about 45-60 minutes.
             </p>
             <p>
-              You will confirm consent details, provide your email address, and answer the integrated pre-study survey
-              after you enter your access code.
+              Study access is assigned only after you consent and complete the pre-study survey, so unused
+              starts do not claim participant slots.
             </p>
-            <p>
-              <strong>Need a code?</strong> Text Kevin at <a href="tel:2368670839">236-867-0839</a> or email{" "}
-              <a href="mailto:kevinwang1262000@gmail.com">kevinwang1262000@gmail.com</a> to get your access code.
-            </p>
+            <p>If you leave after that, return here and enter the same email address from the pre-study survey to resume later.</p>
           </div>
 
-          <Label>
-            Access Code
-            <Input
-              value={accessCode}
-              onChange={(event) => setAccessCode(event.target.value.toUpperCase())}
-              placeholder="AIMC-7K2M"
-            />
-          </Label>
-
           <div className="row-wrap">
-            <Button disabled={loading} onClick={() => void handleLogin()}>
-              Continue Study
+            <Button disabled={loadingAction !== null} onClick={handleOpenEnrollmentForm}>
+              Start Study Now
             </Button>
           </div>
 
-          {error ? <p className="text-warning">{error}</p> : null}
+          <div className="stack-sm" style={{ paddingTop: "0.5rem", borderTop: "1px solid var(--border)" }}>
+            <p className="text-muted" style={{ margin: 0 }}>
+              Returning participant? Resume with your email address.
+            </p>
+            <Label>
+              Email Address
+              <Input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="name@example.com"
+              />
+            </Label>
+
+            <div className="row-wrap">
+              <Button variant="outline" disabled={loadingAction !== null} onClick={() => void handleLogin()}>
+                {loadingAction === "resume" ? "Resuming..." : "Resume Study"}
+              </Button>
+            </div>
+          </div>
+
+          {!showEnrollmentForm && error ? <p className="text-warning">{error}</p> : null}
         </CardContent>
       </Card>
 
-      <StudyContactBar showAccessCodeHelp />
+      {showEnrollmentForm ? (
+        <Card className="pre-survey-card">
+          <CardContent className="stack-md">
+            <PreSurveyForm
+              items={visiblePreSurveyItems}
+              answers={preSurveyAnswers}
+              busy={loadingAction === "enroll"}
+              isInterviewSelected={isInterviewSelected}
+              when2MeetUrl={WHEN2MEET_URL}
+              interviewAvailabilityConfirmed={interviewAvailabilityConfirmed}
+              onAnswerChange={handlePreSurveyChange}
+              onInterviewAvailabilityConfirmedChange={setInterviewAvailabilityConfirmed}
+              onSubmit={() => void handleEnroll()}
+              submitLabel={isInterviewSelected ? "Continue to Interview Instructions" : "Continue to Practice"}
+              submitTitle={enrollSubmitTitle}
+              disableSubmit={preSurveyBlockedForAiInexperience || preSurveyBlockedForMissingConsent}
+            />
+            {error ? <p className="text-warning">{error}</p> : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <StudyContactBar showResumeHelp />
     </main>
   );
 }

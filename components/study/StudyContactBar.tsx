@@ -1,9 +1,9 @@
 "use client";
 
 export function StudyContactBar({
-  showAccessCodeHelp = false
+  showResumeHelp = false
 }: {
-  showAccessCodeHelp?: boolean;
+  showResumeHelp?: boolean;
 }) {
   return (
     <aside className="study-contact-bar" aria-label="Study contact information">
@@ -17,9 +17,9 @@ export function StudyContactBar({
           <strong>Other study contacts:</strong> Yuri Kim{" "}
           <a href="mailto:yurikim1@cs.ubc.ca">yurikim1@cs.ubc.ca</a>
         </p>
-        {showAccessCodeHelp ? (
+        {showResumeHelp ? (
           <p>
-            <strong>Need an access code?</strong> Text Kevin for the code before starting.
+            <strong>Returning later?</strong> Resume with the same email address you entered in the pre-study survey.
           </p>
         ) : null}
       </div>

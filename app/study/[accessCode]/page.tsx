@@ -16,11 +16,7 @@ export default async function StudySessionPage({
 
     return (
       <main>
-        <StudyWorkspace
-          sessionId={resolved.sessionId}
-          portalMode="participant"
-          participantAccessCode={resolved.accessCode}
-        />
+        <StudyWorkspace sessionId={resolved.sessionId} portalMode="participant" />
       </main>
     );
   } catch (error) {
@@ -28,7 +24,7 @@ export default async function StudySessionPage({
       <main>
         <Card>
           <CardHeader>
-            <CardTitle>Invalid Access Code</CardTitle>
+            <CardTitle>Invalid Study Link</CardTitle>
           </CardHeader>
           <CardContent className="stack-sm">
             <p>{error instanceof Error ? error.message : "Unable to load session."}</p>

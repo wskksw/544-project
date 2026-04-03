@@ -22,7 +22,10 @@ type Condition = RoleCondition;
 type MatrixParticipant = {
   participantId: string;
   participantLabel: string;
+  attachedName: string | null;
+  attachedEmail: string | null;
   accessCode: string;
+  slotStatus: "unclaimed" | "active" | "completed";
   sessionId: string | null;
   sessionStatus: string;
   currentState: string | null;
@@ -69,12 +72,23 @@ function scenarioLabel(scenarioId: string): string {
   }
 }
 
+function slotStatusLabel(slotStatus: MatrixParticipant["slotStatus"]): string {
+  switch (slotStatus) {
+    case "unclaimed":
+      return "Not started";
+    case "completed":
+      return "Completed";
+    default:
+      return "Active";
+  }
+}
+
 export function ResearcherControlPanel() {
   const [targetN, setTargetN] = useState("18");
   const [message, setMessage] = useState("");
   const [labelDrafts, setLabelDrafts] = useState<Record<string, string>>({});
   const [savingLabelId, setSavingLabelId] = useState<string | null>(null);
-  const [restartingParticipantId, setRestartingParticipantId] = useState<string | null>(null);
+  const [resettingParticipantId, setResettingParticipantId] = useState<string | null>(null);
   const [resettingAll, setResettingAll] = useState(false);
   const [data, setData] = useState<AssignmentPayload | null>(null);
   const [loading, setLoading] = useState(false);
@@ -183,36 +197,39 @@ export function ResearcherControlPanel() {
     }
   }
 
-  async function restartParticipantAtPreSurvey(participantId: string): Promise<void> {
-    setRestartingParticipantId(participantId);
+  async function resetParticipantSlot(participant: MatrixParticipant): Promise<void> {
+    const confirmed = window.confirm(
+      `Reset ${participant.participantLabel} (${participant.accessCode}) to Not started?\n\nThis keeps the participant slot and access code, but permanently deletes the linked survey/profile data, sessions, progress, logs, and responses for this participant.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setResettingParticipantId(participant.participantId);
     setMessage("");
 
     try {
-      const response = await fetch(`/api/researcher/participants/${participantId}/restart-session`, {
+      const response = await fetch(`/api/researcher/participants/${participant.participantId}/restart-session`, {
         method: "POST"
       });
       const json = (await response.json()) as {
+        sessionId?: string;
         accessCode?: string;
         participantLabel?: string;
         error?: string;
       };
       if (!response.ok) {
-        throw new Error(json.error ?? "Failed to restart participant session");
+        throw new Error(json.error ?? "Failed to reset participant slot");
       }
 
       await loadAssignments();
-
-      if (json.accessCode) {
-        window.open(`/study/${json.accessCode}`, "_blank", "noopener,noreferrer");
-      }
-
       setMessage(
-        `Session restarted for ${json.participantLabel ?? "participant"}. A new tab should open at pre-survey.`
+        `Reset ${json.participantLabel ?? "participant"} to Not started. Access code ${json.accessCode ?? participant.accessCode} stays attached to this slot.`
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unknown error");
     } finally {
-      setRestartingParticipantId(null);
+      setResettingParticipantId(null);
     }
   }
 
@@ -270,7 +287,7 @@ export function ResearcherControlPanel() {
           <p className="text-muted">
             {data?.currentTargetN
               ? `Current target N: ${data.currentTargetN}. You can raise or adjust it (must be a multiple of 3 and not below current enrollment).`
-              : "Set target N, then generate access codes. Auto-assignment uses the least-filled cell."}
+              : "Set target N to pre-create open slots. Self-serve enrollments claim the next available slot only after consent and pre-survey submission."}
           </p>
 
           <div className="row-wrap">
@@ -358,11 +375,13 @@ export function ResearcherControlPanel() {
             <TableHead>
               <TableRow>
                 <TableHeaderCell>Label</TableHeaderCell>
+                <TableHeaderCell>Attached Identity</TableHeaderCell>
                 <TableHeaderCell>Access Code</TableHeaderCell>
                 <TableHeaderCell>Cell</TableHeaderCell>
+                <TableHeaderCell>Slot Status</TableHeaderCell>
                 <TableHeaderCell>Progress</TableHeaderCell>
                 <TableHeaderCell>Completed</TableHeaderCell>
-                <TableHeaderCell>Restart</TableHeaderCell>
+                <TableHeaderCell>Reset</TableHeaderCell>
                 <TableHeaderCell>Open</TableHeaderCell>
               </TableRow>
             </TableHead>
@@ -393,8 +412,19 @@ export function ResearcherControlPanel() {
                           </Button>
                         </div>
                       </TableCell>
+                      <TableCell>
+                        {participant.attachedName || participant.attachedEmail ? (
+                          <div className="stack-sm">
+                            <span>{participant.attachedName ?? "No name yet"}</span>
+                            {participant.attachedEmail ? <span className="text-muted">{participant.attachedEmail}</span> : null}
+                          </div>
+                        ) : (
+                          <span className="text-muted">No survey profile yet</span>
+                        )}
+                      </TableCell>
                       <TableCell>{participant.accessCode}</TableCell>
                       <TableCell>{participant.cellId}</TableCell>
+                      <TableCell>{slotStatusLabel(participant.slotStatus)}</TableCell>
                       <TableCell>
                         {participant.completedTrials}/{participant.totalTrials}
                       </TableCell>
@@ -402,11 +432,11 @@ export function ResearcherControlPanel() {
                       <TableCell>
                         <Button
                           size="sm"
-                          variant="outline"
-                          disabled={restartingParticipantId === participant.participantId}
-                          onClick={() => void restartParticipantAtPreSurvey(participant.participantId)}
+                          variant="destructive"
+                          disabled={resettingParticipantId === participant.participantId}
+                          onClick={() => void resetParticipantSlot(participant)}
                         >
-                          Restart at Pre-Survey
+                          Reset To Not Started
                         </Button>
                       </TableCell>
                       <TableCell>
@@ -418,7 +448,7 @@ export function ResearcherControlPanel() {
                   ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7}>No participants yet.</TableCell>
+                  <TableCell colSpan={9}>No participants yet.</TableCell>
                 </TableRow>
               )}
             </TableBody>

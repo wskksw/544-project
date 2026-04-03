@@ -366,7 +366,7 @@ export function bulletInputGuidance(condition: Condition): BulletInputGuidance {
   return {
     whatAiDoes: [],
     tooltip:
-      "The Drafter Assistant writes one full draft from your 3-5 bullets. No regenerate button is available. You can then edit the draft before submission.",
+      "The AI assistant writes one full draft from your 3-5 bullets. No regenerate button is available. You can then edit the draft before submission.",
     showExample: false,
     exampleTitle: "",
     exampleBullets: []

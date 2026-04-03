@@ -6,12 +6,10 @@ import { getScenarioLabel } from "@/components/study/utils";
 
 export function StudyHeader({
   portalMode,
-  participantAccessCode,
   snapshot,
   currentState
 }: {
   portalMode: PortalMode;
-  participantAccessCode?: string;
   snapshot: SessionPayload;
   currentState: StudyState;
 }) {
@@ -20,9 +18,12 @@ export function StudyHeader({
       <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
         <div>
           {portalMode === "participant" ? (
-            <>
-              <strong>Access Code:</strong> {participantAccessCode ?? snapshot.session.accessCode}
-            </>
+            <div style={{ display: "grid", gap: "0.15rem" }}>
+              <div>
+                <strong>Resume later:</strong> Enter your email on the study access page.
+              </div>
+              <span className="text-muted">Use the same email address you entered in the pre-study survey.</span>
+            </div>
           ) : (
             <>
               <strong>Session:</strong> {snapshot.session.id.slice(0, 8)} | <strong>Participant:</strong>{" "}

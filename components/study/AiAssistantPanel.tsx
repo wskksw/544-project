@@ -123,7 +123,7 @@ export function AiAssistantPanel({
       ) : null}
 
       {(currentState === "bullet_input" || currentState === "human_drafting") &&
-      (guidance.whatAiDoes.length > 0 || guidance.showExample) ? (
+        (guidance.whatAiDoes.length > 0 || guidance.showExample) ? (
         <div className="card" style={{ marginTop: "0.6rem", background: "var(--muted)" }}>
           {guidance.whatAiDoes.length > 0 ? (
             <>
@@ -412,7 +412,7 @@ export function AiAssistantPanel({
                     title="Finishes reflection and shows your responses for reference."
                     onClick={onFinishReflections}
                   >
-                    Finish Reflections
+                    Complete
                   </button>
                 )}
               </div>
@@ -461,7 +461,7 @@ export function AiAssistantPanel({
           ) : null}
 
           {(currentState === "independent_drafting" || currentState === "final_edit" || currentState === "post_condition_survey") &&
-          thoughtPartnerOutput ? (
+            thoughtPartnerOutput ? (
             <div className="card" style={{ background: "var(--muted)" }}>
               <p>
                 <strong>Your Responses</strong>
