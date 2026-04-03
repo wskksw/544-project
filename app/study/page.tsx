@@ -136,10 +136,6 @@ export default function StudyLoginPage() {
               <strong>Before you begin:</strong> plan for 30-45 minutes for the study itself. If you are invited to a
               follow-up interview, the full commitment is about 45-60 minutes.
             </p>
-            <p>
-              Study access is assigned only after you consent and complete the pre-study survey, so unused
-              starts do not claim participant slots.
-            </p>
             <p>If you leave after that, return here and enter the same email address from the pre-study survey to resume later.</p>
           </div>
 
