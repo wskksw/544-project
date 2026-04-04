@@ -157,6 +157,7 @@ Then the suggestions could be:
 
 Rules:
 - Each suggestion should revise a DIFFERENT part of the draft
+- The 4 suggestions must target 4 NON-OVERLAPPING parts of the draft
 - Reasons should be concise (under 20 words)
 - If the draft is strong in a category, still suggest a subtle improvement
 - Keep each category exactly one of: tone, empathy, specificity, clarity
@@ -169,7 +170,7 @@ Return strict JSON matching this exact schema:
 ${params.message}
 """
 
-Now generate suggestions for the user's actual draft above. Respond ONLY with the JSON object.`;
+Now generate suggestions for the user's actual draft above.Respond ONLY with the JSON object.`;
 
   if (!process.env.OPENAI_API_KEY) {
     const fallback = {
