@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { nowIso } from "@/lib/logger";
+import { LEGACY_POST_STUDY_WORKFLOW_OPTIONS, POST_STUDY_WORKFLOW_OPTIONS } from "@/lib/postStudyWorkflowOptions";
 import { visibleSurveyItems as filterVisibleSurveyItems } from "@/lib/surveyItems";
 import type { RoleCondition, SurveyItem, SurveyTemplate, SurveyTemplateId } from "@/lib/types";
 import { z } from "zod";
@@ -62,11 +63,6 @@ const surveyTemplateSchema = z.object({
 
 const surveyTemplateListSchema = z.array(surveyTemplateSchema).length(2);
 
-const CONDITION_OPTIONS = [
-  "The tool that asked you reflection questions before you wrote",
-  "The tool that suggested revisions to your draft",
-  "The tool that generated a draft from your bullet points"
-];
 const AGREEMENT_SCALE_LABELS = [
   "Strongly disagree",
   "Disagree",
@@ -217,7 +213,7 @@ const DEFAULT_TEMPLATES: SurveyTemplate[] = [
         type: "ranking",
         required: true,
         condition: "all",
-        options: CONDITION_OPTIONS
+        options: POST_STUDY_WORKFLOW_OPTIONS
       },
       {
         id: "overall_preference_rationale",
@@ -251,8 +247,33 @@ function arraysEqual(left: string[] | undefined, right: string[]): boolean {
 }
 
 function upgradeLegacyTemplate(template: SurveyTemplate): SurveyTemplate {
-  if (template.id !== "per_condition") {
-    return template;
+  if (template.id === "post_study") {
+    let changed = false;
+    const nextItems = template.items.map((item) => {
+      if (
+        item.id === "overall_preference_ranking" &&
+        (arraysEqual(item.options, LEGACY_POST_STUDY_WORKFLOW_OPTIONS) || arraysEqual(item.options, POST_STUDY_WORKFLOW_OPTIONS))
+      ) {
+        if (!arraysEqual(item.options, POST_STUDY_WORKFLOW_OPTIONS)) {
+          changed = true;
+          return {
+            ...item,
+            options: [...POST_STUDY_WORKFLOW_OPTIONS]
+          };
+        }
+      }
+
+      return item;
+    });
+
+    if (!changed) {
+      return template;
+    }
+
+    return {
+      ...template,
+      items: nextItems
+    };
   }
 
   let changed = false;

@@ -2,6 +2,7 @@
 
 import type { SurveyValue } from "@/components/surveys/SurveyQuestionField";
 import { getConditionDisplayLabel } from "@/lib/conditionLabels";
+import { POST_STUDY_WORKFLOW_OPTIONS } from "@/lib/postStudyWorkflowOptions";
 import { PRE_SURVEY_ITEMS, WHEN2MEET_URL, getPreSurveyValidationError, getTodayDateString } from "@/lib/preSurvey";
 import { visibleSurveyItems as filterVisibleSurveyItems } from "@/lib/surveyItems";
 import { AiAssistantPanel } from "@/components/study/AiAssistantPanel";
@@ -1005,11 +1006,7 @@ export function StudyWorkspace({
                 ...item,
                 prompt:
                   "Rank the three writing workflows from most to least preferred based on your overall experience.",
-                options: [
-                  "Workflow A: AI asked reflective questions, then you wrote independently",
-                  "Workflow B: You wrote first, then reviewed AI revision suggestions",
-                  "Workflow C: You gave bullet points and AI generated one draft"
-                ]
+                options: POST_STUDY_WORKFLOW_OPTIONS
               }
               : item.id === "overall_preference_rationale"
                 ? {
