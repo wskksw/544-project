@@ -84,6 +84,13 @@ Multiple-comparison note:
 - `Bonferroni` is also valid here and has now been added to `paper_analysis.ipynb` for future reruns
 - The currently exported CSVs in `results_tables/` were generated before that update, so they may not yet include `p_bonferroni`
 
+Global correction note:
+- The notebook now also includes a conservative sensitivity table that corrects across all 12 main-outcome pairwise contrasts at once
+- That table uses 4 outcomes x 3 condition pairs: authenticity, effort, willingness to send, and log completion time
+- After rerunning the notebook, it will export to `results_tables/main_outcome_pairwise_global_correction.csv`
+- This global correction is more conservative than correcting within each RQ/outcome family
+- It is useful as a robustness check, but it is not automatically required if the paper treats each RQ/outcome as a separate planned hypothesis family
+
 ## Main Reliability Results
 
 From `results_tables/reliability.csv`:
