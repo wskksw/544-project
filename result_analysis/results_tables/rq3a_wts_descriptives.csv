@@ -1,0 +1,4 @@
+condition,label,n,mean,sd,median,min,max
+thought_partner,Thought Partner,21,5.809523809523809,1.2090925365350502,6.0,3,7
+editor,Editor,21,5.9523809523809526,1.0235326314383177,6.0,3,7
+ghost_writer,Ghost-writer,21,4.380952380952381,1.8296499795368097,4.0,1,7
